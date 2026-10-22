@@ -7,14 +7,21 @@ class InputRequired(Exception):
     pass
 
 
+class OutputLimitExceeded(Exception):
+    pass
+
+
 class VirtualIO:
     def __init__(
         self,
         inputs: Iterable[str] | None = None,
         input_provider: Callable[[], str | None] | None = None,
+        max_output_bytes: int | None = None,
     ) -> None:
         self._inputs: deque[str] = deque()
         self._output = StringIO()
+        self._output_size = 0
+        self._max_output_bytes = max_output_bytes
         self._input_provider = input_provider
         if inputs is not None:
             for value in inputs:
@@ -54,6 +61,11 @@ class VirtualIO:
         return value
 
     def write_output(self, value: str) -> None:
+        if self._max_output_bytes is not None:
+            size = len(value.encode("utf-8"))
+            if self._output_size + size > self._max_output_bytes:
+                raise OutputLimitExceeded
+            self._output_size += size
         self._output.write(value)
 
     def stdout(self) -> str:

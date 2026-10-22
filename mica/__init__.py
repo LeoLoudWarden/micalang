@@ -1,3 +1,3 @@
-from .engine import MicaEngine, MicaError, VMHandle
+from .engine import MicaEngine, MicaError, MicaLimits, VMHandle
 
-__all__ = ["MicaEngine", "MicaError", "VMHandle"]
+__all__ = ["MicaEngine", "MicaError", "MicaLimits", "VMHandle"]
