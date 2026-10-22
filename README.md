@@ -1,5 +1,10 @@
 # MicaLang
 
+[![CI](https://github.com/LeoLoudWarden/micalang/actions/workflows/ci.yml/badge.svg)](https://github.com/LeoLoudWarden/micalang/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/micalang)](https://pypi.org/project/micalang/)
+[![Python](https://img.shields.io/pypi/pyversions/micalang)](https://pypi.org/project/micalang/)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/LeoLoudWarden/micalang/blob/main/LICENSE)
+
 **Mica** is a scripting language and its execution engine, built around a single idea: creating a fully isolated, arbitrarily nestable runtime environment should be a cheap, first-class operation in the language itself.
 
 Syntax borrows a subset of Python, but Mica source is compiled into Mica's own instruction stream and executed by the Mica engine — never through `exec`/`eval`. Every VM starts with zero capabilities: its own virtual IO, its own in-memory filesystem, and the ability to create child VMs. Everything else (network, host data, whatever you choose) is granted explicitly, layer by layer, through FFI.

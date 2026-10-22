@@ -1,5 +1,10 @@
 # MicaLang
 
+[![CI](https://github.com/LeoLoudWarden/micalang/actions/workflows/ci.yml/badge.svg)](https://github.com/LeoLoudWarden/micalang/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/micalang)](https://pypi.org/project/micalang/)
+[![Python](https://img.shields.io/pypi/pyversions/micalang)](https://pypi.org/project/micalang/)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/LeoLoudWarden/micalang/blob/main/LICENSE)
+
 **Mica** 是一门脚本语言及其执行引擎，围绕一个想法构建：**创建一个完全隔离、可以任意嵌套的运行环境，应当是语言自身的一种廉价的第一类操作。**
 
 语法借用 Python 的一个子集，但 Mica 源码会被编译为 Mica 自己的指令流，由 Mica 引擎逐条执行——不经过 `exec`/`eval`。每台 VM 初始能力为零：独立的虚拟 IO、独立的内存文件系统、创建子 VM。其余一切能力（网络、宿主数据、任何你选择授予的东西）都通过 FFI 逐层显式授予。

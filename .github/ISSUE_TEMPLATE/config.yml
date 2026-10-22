@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 安全漏洞报告
+    url: https://github.com/LeoLoudWarden/micalang/security/advisories/new
+    about: 隔离逃逸、配额绕过、信息泄漏等安全问题请勿公开 issue，请通过私密漏洞报告渠道提交。
+  - name: 设计理念讨论
+    url: https://github.com/LeoLoudWarden/micalang/blob/main/docs/design.zh-CN.md
+    about: 涉及"为什么这样设计"的讨论，请先读《Mica 设计说明》。

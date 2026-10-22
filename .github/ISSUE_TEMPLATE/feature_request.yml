@@ -1,0 +1,31 @@
+name: 功能建议 / Feature request
+description: 语言特性、内建能力、工具链的建议 / Language features, builtins, tooling
+title: "feat: "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        提建议前请先读[设计说明](https://github.com/LeoLoudWarden/micalang/blob/main/docs/design.zh-CN.md)：Mica 的内建能力上限是虚拟文件系统，其余能力走 FFI 授予——"给引擎内建网络/设备能力"类建议与设计边界冲突，直接提大概率不会被采纳。
+        Please read the design notes first: built-in capabilities stop at the virtual filesystem; everything else is granted via FFI.
+  - type: textarea
+    id: problem
+    attributes:
+      label: 想解决什么问题 / Problem to solve
+      description: 先描述场景和痛点，而不是直接描述方案。Describe the scenario and pain point, not the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 提议的形式 / Proposal
+      description: 如果有具体想法（语法、API、行为）写在这里；没有可以留空。Optional.
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 考虑过的替代方案 / Alternatives considered
+      description: 比如用 FFI 授予、或在应用层实现，是否已经够用？E.g. would an FFI grant or an application-layer solution suffice?
+    validations:
+      required: false

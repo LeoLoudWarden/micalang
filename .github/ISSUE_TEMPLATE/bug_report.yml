@@ -1,0 +1,48 @@
+name: Bug 报告 / Bug report
+description: 引擎、编译器、CLI 或打包安装的行为与文档不符 / Engine, compiler, CLI or packaging behaves differently from the docs
+title: "bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢报告。如果是**安全问题**（隔离逃逸、配额绕过、信息泄漏），请不要开公开 issue，改用仓库 Security 页的私密漏洞报告。
+        For **security issues** (isolation escape, quota bypass, information leak), please use private vulnerability reporting under the Security tab instead of a public issue.
+  - type: textarea
+    id: what
+    attributes:
+      label: 问题描述 / What happened
+      description: 发生了什么？大致在哪一层——语言语法 / 引擎行为 / CLI / 打包安装？
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: 复现 / Reproduction
+      description: 最小复现：一段 mica 代码或一段 Python 调用代码，以及运行命令。Minimal reproduction, please.
+      placeholder: |
+        sub = VM("print('hi')")
+        print(sub.run())
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为 / Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为 / Actual behavior
+      description: 实际输出或错误信息（错误 kind、消息、逻辑行号）。Actual output or error (kind, message, logical line).
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 版本 / Version
+      description: micalang 版本（`micalang --version`）与 Python 版本。
+      placeholder: "micalang 0.1.0, Python 3.12"
+    validations:
+      required: true
