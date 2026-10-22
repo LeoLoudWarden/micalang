@@ -459,6 +459,33 @@ class PassTests(unittest.TestCase):
         self.assertEqual(run(source), "ok\n")
 
 
+class TernaryTests(unittest.TestCase):
+    def test_basic(self):
+        source = 'x = 1 if True else 2\ny = 1 if False else 2\nprint(x, y)\n'
+        self.assertEqual(run(source), "1 2\n")
+
+    def test_short_circuit(self):
+        source = (
+            "def boom():\n"
+            '    print("boom")\n'
+            "    return 0\n"
+            "a = 1 if True else boom()\n"
+            "b = boom() if False else 2\n"
+            "print(a, b)\n"
+        )
+        self.assertEqual(run(source), "1 2\n")
+
+    def test_nested_and_in_call(self):
+        source = (
+            "def f(n):\n"
+            '    return "neg" if n < 0 else ("zero" if n == 0 else "pos")\n'
+            "print(f(-1), f(0), f(3))\n"
+            "d = {}\n"
+            'print(d["k"] if "k" in d else "default")\n'
+        )
+        self.assertEqual(run(source), "neg zero pos\ndefault\n")
+
+
 class ExternalAuditTests(unittest.TestCase):
     """外部安全审查采纳项的回归测试。"""
 

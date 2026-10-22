@@ -26,6 +26,7 @@ _ALLOWED_NODES = {
     ast.Assign,
     ast.Expr,
     ast.If,
+    ast.IfExp,
     ast.While,
     ast.For,
     ast.Break,
@@ -637,6 +638,15 @@ class _Compiler:
             self.emit(
                 code, isa.COMPARE_OP, _COMPARE_OPS[type(node.ops[0])], line
             )
+            return
+        if isinstance(node, ast.IfExp):
+            self.compile_expression(node.test, code)
+            jump_false = self.emit(code, isa.JUMP_IF_FALSE, None, line)
+            self.compile_expression(node.body, code)
+            jump_end = self.emit(code, isa.JUMP, None, line)
+            code.instrs[jump_false].arg = len(code.instrs)
+            self.compile_expression(node.orelse, code)
+            code.instrs[jump_end].arg = len(code.instrs)
             return
         if isinstance(node, ast.Subscript):
             self.compile_expression(node.value, code)
