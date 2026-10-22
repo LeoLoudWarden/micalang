@@ -12,7 +12,7 @@ def _read_stdin() -> str | None:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="mica", description="MicaJIT-PY prototype")
+    parser = argparse.ArgumentParser(prog="mica", description="Mica-PY prototype")
     parser.add_argument("source", help="Mica source file")
     args = parser.parse_args(argv)
     try:

@@ -1,0 +1,21 @@
+# 父 VM 把函数授予子 VM：能力沿创建链显式传递
+
+base_url = "https://api.example.com"
+
+def endpoint(path):
+    return base_url + "/" + path
+
+def fake_http_get(url):
+    # 真实场景里这是宿主注入的网络函数；这里用 mica 函数模拟结构化返回
+    return {"status": 200, "url": url, "body": "payload of " + url}
+
+child_source = """
+resp = fake_http_get(endpoint("users"))
+print("status:", resp["status"])
+print("url:", resp["url"])
+if "body" in resp:
+    print("body:", resp["body"])
+"""
+
+sub = VM(child_source, functions={"endpoint": endpoint, "fake_http_get": fake_http_get})
+print(sub.run())

@@ -5,7 +5,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 
 from . import isa
-from .compiler import VM_METHODS, compile_source
+from .compiler import RESERVED_NAMES, VM_METHODS, compile_source
 from .errors import MicaError
 from .io import InputRequired, OutputLimitExceeded, VirtualIO
 from .vfs import VirtualFileSystem
@@ -18,6 +18,7 @@ _VM_OPTIONS = {
     "max_frames",
     "max_child_vms",
     "max_list_size",
+    "max_dict_size",
     "max_vm_depth",
     "max_fs_files",
     "max_fs_file_bytes",
@@ -31,6 +32,7 @@ class MicaLimits:
     max_frames: int = 100
     max_child_vms: int = 100
     max_list_size: int = 100_000
+    max_dict_size: int = 100_000
     max_vm_depth: int = 8
     max_fs_files: int = 1000
     max_fs_file_bytes: int = 1_048_576
@@ -42,6 +44,7 @@ class Frame:
     pc: int = 0
     stack: list[object] = field(default_factory=list)
     locals: dict[str, object] = field(default_factory=dict)
+    module_locals: dict[str, object] | None = None
 
 
 class MicaFunction:
@@ -58,6 +61,29 @@ class _NativeFunction:
     callback: Callable[..., object]
 
 
+@dataclass(frozen=True)
+class _GrantedHostFunction:
+    """宿主注入的 Python 函数：跨边界双向深拷贝，异常净化为 ffi_error。"""
+
+    name: str
+    callback: Callable[..., object]
+
+    def __repr__(self) -> str:
+        return f"<function {self.name}>"
+
+
+@dataclass(frozen=True)
+class _GrantedMicaFunction:
+    """父 VM 授予的 mica 函数：在被授予 VM 的帧栈上执行，但解析定义方的模块全局。"""
+
+    name: str
+    code: isa.CodeUnit
+    module_locals: dict[str, object]
+
+    def __repr__(self) -> str:
+        return f"<function {self.name}>"
+
+
 @dataclass
 class VMContext:
     vm_id: int
@@ -67,6 +93,7 @@ class VMContext:
     fs: VirtualFileSystem
     limits: MicaLimits
     frames: list[Frame] = field(default_factory=list)
+    granted: dict[str, object] = field(default_factory=dict)
     state: str = "ready"
     last_line: int | None = None
     error: MicaError | None = None
@@ -147,6 +174,7 @@ class MicaEngine:
         inputs: Iterable[str] | None = None,
         input_provider: Callable[[], str | None] | None = None,
         limits: MicaLimits | None = None,
+        functions: dict[str, Callable[..., object]] | None = None,
     ) -> VMHandle:
         effective = limits or self._limits
         io = VirtualIO(
@@ -154,13 +182,31 @@ class MicaEngine:
             input_provider=input_provider,
             max_output_bytes=effective.max_output_bytes,
         )
+        granted = self._validate_host_functions(functions)
         return self._create_vm(
             source=source,
             parent_id=None,
             depth=0,
             io=io,
             limits=effective,
+            granted=granted,
         )
+
+    def _validate_host_functions(
+        self, functions: dict[str, Callable[..., object]] | None
+    ) -> dict[str, object]:
+        granted: dict[str, object] = {}
+        if not functions:
+            return granted
+        for name, callback in functions.items():
+            _check_grant_name(name)
+            if not callable(callback):
+                raise MicaError(
+                    f"granted function '{name}' is not callable",
+                    kind="type_error",
+                )
+            granted[name] = _GrantedHostFunction(name, callback)
+        return granted
 
     def _create_vm(
         self,
@@ -170,6 +216,7 @@ class MicaEngine:
         depth: int,
         io: VirtualIO,
         limits: MicaLimits,
+        granted: dict[str, object] | None = None,
     ) -> VMHandle:
         filename = f"<mica:vm_{self._next_vm_id}>"
         code = compile_source(source, filename)
@@ -186,6 +233,7 @@ class MicaEngine:
             ),
             limits=limits,
             frames=[Frame(code=code)],
+            granted=dict(granted) if granted else {},
         )
         if not any(instr.stmt_start for instr in code.instrs):
             context.state = "done"
@@ -343,6 +391,24 @@ class MicaEngine:
             if arg:
                 del stack[len(stack) - arg :]
             stack.append(list(items))
+        elif op == isa.BUILD_DICT:
+            if arg > context.limits.max_dict_size:
+                raise MicaError(
+                    "dict size limit exceeded", kind="resource_exhausted"
+                )
+            pairs = stack[len(stack) - 2 * arg :] if arg else []
+            if arg:
+                del stack[len(stack) - 2 * arg :]
+            mapping: dict[object, object] = {}
+            for position in range(0, len(pairs), 2):
+                key = pairs[position]
+                if type(key) not in (str, int, float, bool) and key is not None:
+                    raise MicaError(
+                        f"unhashable key type: {_type_name(key)}",
+                        kind="type_error",
+                    )
+                mapping[key] = pairs[position + 1]
+            stack.append(mapping)
         elif op == isa.LOAD_INDEX:
             index = stack.pop()
             value = stack.pop()
@@ -351,7 +417,7 @@ class MicaEngine:
             index = stack.pop()
             target = stack.pop()
             value = stack.pop()
-            self._store_index(target, index, value)
+            self._store_index(context, target, index, value)
         elif op == isa.BINARY_OP:
             right = stack.pop()
             left = stack.pop()
@@ -444,6 +510,46 @@ class MicaEngine:
             frame.pc += 1
             stack.append(result)
             return
+        if isinstance(function, _GrantedHostFunction):
+            budget = [
+                context.limits.max_list_size + context.limits.max_dict_size
+            ]
+            host_args = [_to_host(value, budget) for value in args]
+            host_kwargs = {
+                key: _to_host(value, budget) for key, value in kwargs.items()
+            }
+            try:
+                raw = function.callback(*host_args, **host_kwargs)
+            except MicaError:
+                raise
+            except Exception as exc:
+                message = str(exc)[:200]
+                raise MicaError(
+                    f"host function '{function.name}' failed: {message}",
+                    kind="ffi_error",
+                ) from None
+            result = _from_host(raw, budget)
+            del stack[base - 1 :]
+            frame.pc += 1
+            stack.append(result)
+            return
+        if isinstance(function, _GrantedMicaFunction):
+            code = function.code
+            locals_ = self._bind_arguments(code, args, kwargs)
+            if len(context.frames) + 1 > context.limits.max_frames:
+                raise MicaError(
+                    "call depth limit exceeded", kind="resource_exhausted"
+                )
+            del stack[base - 1 :]
+            frame.pc += 1
+            context.frames.append(
+                Frame(
+                    code=code,
+                    locals=locals_,
+                    module_locals=function.module_locals,
+                )
+            )
+            return
         raise MicaError("value is not callable", kind="type_error")
 
     def _bind_arguments(
@@ -483,9 +589,15 @@ class MicaEngine:
     def _load_name(self, context: VMContext, frame: Frame, name: str) -> object:
         if name in frame.locals:
             return frame.locals[name]
-        module_locals = context.frames[0].locals
-        if frame is not context.frames[0] and name in module_locals:
+        module_locals = (
+            frame.module_locals
+            if frame.module_locals is not None
+            else context.frames[0].locals
+        )
+        if name in module_locals:
             return module_locals[name]
+        if name in context.granted:
+            return context.granted[name]
         builtin = self._builtin(context, name)
         if builtin is not None:
             return builtin
@@ -510,6 +622,8 @@ class MicaEngine:
             return _NativeFunction(
                 "range", lambda *args: self._range(context, args)
             )
+        if name == "keys":
+            return _NativeFunction("keys", self._keys)
         if name == "read_file":
             return _NativeFunction("read_file", context.fs.read_file)
         if name == "write_file":
@@ -532,6 +646,7 @@ class MicaEngine:
     ) -> VMHandle:
         if not isinstance(source, str):
             raise MicaError("VM source must be a string", kind="type_error")
+        granted = self._validate_child_functions(parent, config.pop("functions", None))
         limits = parent.limits
         if config:
             overrides: dict[str, int] = {}
@@ -561,18 +676,56 @@ class MicaEngine:
             depth=depth,
             io=VirtualIO(max_output_bytes=limits.max_output_bytes),
             limits=limits,
+            granted=granted,
         )
+
+    def _validate_child_functions(
+        self, parent: VMContext, functions: object
+    ) -> dict[str, object]:
+        if functions is None:
+            return {}
+        if not isinstance(functions, dict):
+            raise MicaError(
+                "VM option functions must be a dict", kind="type_error"
+            )
+        granted: dict[str, object] = {}
+        for name, value in functions.items():
+            _check_grant_name(name)
+            if isinstance(value, MicaFunction):
+                granted[name] = _GrantedMicaFunction(
+                    name, value.code, parent.frames[0].locals
+                )
+            elif isinstance(value, _GrantedHostFunction):
+                granted[name] = _GrantedHostFunction(name, value.callback)
+            elif isinstance(value, _GrantedMicaFunction):
+                granted[name] = _GrantedMicaFunction(
+                    name, value.code, value.module_locals
+                )
+            else:
+                raise MicaError(
+                    f"granted value '{name}' is not a function",
+                    kind="type_error",
+                )
+        return granted
 
     def _print(self, context: VMContext, values: tuple[object, ...]) -> None:
         context.io.write_output(" ".join(_to_str(v) for v in values) + "\n")
 
     def _len(self, value: object) -> int:
-        if isinstance(value, (str, list)):
+        if isinstance(value, (str, list, dict)):
             return len(value)
         raise MicaError(
             f"object of type '{_type_name(value)}' has no len()",
             kind="type_error",
         )
+
+    def _keys(self, value: object) -> list[object]:
+        if type(value) is not dict:
+            raise MicaError(
+                f"keys() expects a dict, got {_type_name(value)}",
+                kind="type_error",
+            )
+        return list(value.keys())
 
     def _convert_int(self, value: object) -> int:
         if type(value) is bool:
@@ -684,6 +837,9 @@ class MicaEngine:
             return _equals(left, right)
         if op == "!=":
             return not _equals(left, right)
+        if op in ("in", "not in"):
+            result = _contains(right, left)
+            return result if op == "in" else not result
         if (_is_number(left) and _is_number(right)) or (
             type(left) is str and type(right) is str
         ):
@@ -701,6 +857,17 @@ class MicaEngine:
         )
 
     def _index(self, value: object, index: object) -> object:
+        if type(value) is dict:
+            if type(index) not in (str, int, float, bool) and index is not None:
+                raise MicaError(
+                    f"unhashable key type: {_type_name(index)}",
+                    kind="type_error",
+                )
+            if index not in value:
+                raise MicaError(
+                    f"missing key: {_to_str(index)!s}", kind="key_error"
+                )
+            return value[index]
         if isinstance(value, (str, list)):
             if type(index) is not int:
                 raise MicaError(
@@ -714,7 +881,24 @@ class MicaEngine:
             f"'{_type_name(value)}' is not indexable", kind="type_error"
         )
 
-    def _store_index(self, target: object, index: object, value: object) -> None:
+    def _store_index(
+        self, context: VMContext, target: object, index: object, value: object
+    ) -> None:
+        if type(target) is dict:
+            if type(index) not in (str, int, float, bool) and index is not None:
+                raise MicaError(
+                    f"unhashable key type: {_type_name(index)}",
+                    kind="type_error",
+                )
+            if (
+                index not in target
+                and len(target) >= context.limits.max_dict_size
+            ):
+                raise MicaError(
+                    "dict size limit exceeded", kind="resource_exhausted"
+                )
+            target[index] = value
+            return
         if type(target) is not list:
             raise MicaError(
                 f"'{_type_name(target)}' does not support item assignment",
@@ -779,11 +963,72 @@ class MicaEngine:
             }
         if isinstance(value, (VMHandle, MicaFunction)):
             return repr(value)
+        if isinstance(value, (_GrantedHostFunction, _GrantedMicaFunction)):
+            return repr(value)
         return f"<{type(value).__name__}>"
 
 
 def _is_number(value: object) -> bool:
     return type(value) in (int, float)
+
+
+def _check_grant_name(name: object) -> None:
+    if not isinstance(name, str) or not name.isidentifier() or name.startswith("__"):
+        raise MicaError(
+            f"invalid granted function name: {name!r}", kind="type_error"
+        )
+    if name in RESERVED_NAMES:
+        raise MicaError(
+            f"granted function name '{name}' conflicts with a builtin",
+            kind="type_error",
+        )
+
+
+def _to_host(value: object, budget: list[int]) -> object:
+    """把 mica 值深拷贝为宿主侧纯数据结构；不允许句柄/函数越界。"""
+    budget[0] -= 1
+    if budget[0] < 0:
+        raise MicaError("FFI argument structure too large", kind="ffi_error")
+    if value is None or type(value) in (str, int, float, bool):
+        return value
+    if type(value) is list:
+        return [_to_host(item, budget) for item in value]
+    if type(value) is dict:
+        return {
+            _to_host(key, budget): _to_host(item, budget)
+            for key, item in value.items()
+        }
+    raise MicaError(
+        f"value of type '{_type_name(value)}' cannot cross the host boundary",
+        kind="ffi_error",
+    )
+
+
+def _from_host(value: object, budget: list[int]) -> object:
+    """把宿主返回值校验并深拷贝为 mica 值；异物与巨型结构拒绝。"""
+    budget[0] -= 1
+    if budget[0] < 0:
+        raise MicaError("FFI result structure too large", kind="ffi_error")
+    if value is None or type(value) in (str, int, float, bool):
+        return value
+    if type(value) in (list, tuple):
+        return [_from_host(item, budget) for item in value]
+    if type(value) is dict:
+        result: dict[object, object] = {}
+        for key, item in value.items():
+            if type(key) not in (str, int, float, bool) and key is not None:
+                raise MicaError(
+                    f"FFI result has unhashable key of type "
+                    f"'{type(key).__name__}'",
+                    kind="ffi_error",
+                )
+            result[key] = _from_host(item, budget)
+        return result
+    raise MicaError(
+        f"host function returned unsupported type "
+        f"'{type(value).__name__}'",
+        kind="ffi_error",
+    )
 
 
 def _truthy(value: object) -> bool:
@@ -793,7 +1038,7 @@ def _truthy(value: object) -> bool:
         return value
     if type(value) in (int, float):
         return value != 0
-    if isinstance(value, (str, list)):
+    if isinstance(value, (str, list, dict)):
         return len(value) > 0
     return True
 
@@ -803,9 +1048,28 @@ def _equals(left: object, right: object) -> bool:
         return left == right
     if type(left) is not type(right):
         return False
-    if isinstance(left, (str, bool, list)) or left is None:
+    if isinstance(left, (str, bool, list, dict)) or left is None:
         return left == right
     return left is right
+
+
+def _contains(container: object, item: object) -> bool:
+    if type(container) is dict:
+        if type(item) not in (str, int, float, bool) and item is not None:
+            raise MicaError(
+                f"unhashable key type: {_type_name(item)}",
+                kind="type_error",
+            )
+        return item in container
+    if type(container) is list:
+        return any(_equals(element, item) for element in container)
+    if type(container) is str and type(item) is str:
+        return item in container
+    raise MicaError(
+        f"'in' not supported between {_type_name(item)} "
+        f"and {_type_name(container)}",
+        kind="type_error",
+    )
 
 
 def _type_name(value: object) -> str:
@@ -821,6 +1085,8 @@ def _type_name(value: object) -> str:
         return "str"
     if type(value) is list:
         return "list"
+    if type(value) is dict:
+        return "dict"
     if isinstance(value, MicaFunction):
         return "function"
     if isinstance(value, VMHandle):

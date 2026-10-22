@@ -18,6 +18,7 @@ RESERVED_NAMES = {
     "write_file",
     "list_dir",
     "path_exists",
+    "keys",
 }
 
 _ALLOWED_NODES = {
@@ -37,6 +38,7 @@ _ALLOWED_NODES = {
     ast.Store,
     ast.Constant,
     ast.List,
+    ast.Dict,
     ast.Subscript,
     ast.BinOp,
     ast.UnaryOp,
@@ -63,6 +65,8 @@ _ALLOWED_NODES = {
     ast.LtE,
     ast.Gt,
     ast.GtE,
+    ast.In,
+    ast.NotIn,
 }
 
 _BINARY_OPS = {
@@ -80,7 +84,10 @@ _COMPARE_OPS = {
     ast.Lt: "<",
     ast.LtE: "<=",
     ast.Gt: ">",
-    ast.GtE: ">="}
+    ast.GtE: ">=",
+    ast.In: "in",
+    ast.NotIn: "not in",
+}
 
 VM_METHODS = {
     "run",
@@ -162,6 +169,8 @@ def _analyze_stack(code: isa.CodeUnit, filename: str) -> None:
         else:
             if instr.op == isa.BUILD_LIST:
                 delta = 1 - instr.arg
+            elif instr.op == isa.BUILD_DICT:
+                delta = 1 - 2 * instr.arg
             elif instr.op == isa.CALL:
                 delta = -instr.arg
             elif instr.op == isa.CALL_KW:
@@ -228,6 +237,8 @@ def _validate(tree: ast.Module, filename: str) -> None:
                 _reject(node, filename, "VM methods can only be called directly")
         if isinstance(node, ast.keyword) and node.arg is None:
             _reject(node, filename, "** arguments are not supported")
+        if isinstance(node, ast.Dict) and any(key is None for key in node.keys):
+            _reject(node, filename, "** unpacking is not supported")
         if isinstance(node, ast.ExceptHandler):
             if node.type is not None and not isinstance(node.type, ast.Name):
                 _reject(
@@ -459,6 +470,12 @@ class _Compiler:
             for element in node.elts:
                 self.compile_expression(element, code)
             self.emit(code, isa.BUILD_LIST, len(node.elts), line)
+            return
+        if isinstance(node, ast.Dict):
+            for key, value in zip(node.keys, node.values):
+                self.compile_expression(key, code)
+                self.compile_expression(value, code)
+            self.emit(code, isa.BUILD_DICT, len(node.keys), line)
             return
         if isinstance(node, ast.BinOp):
             self.compile_expression(node.left, code)
