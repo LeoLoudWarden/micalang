@@ -1,0 +1,27 @@
+try:
+    x = 1 / 0
+except zero_division as e:
+    print("caught: " + e)
+
+def f():
+    return missing_thing + 1
+
+try:
+    f()
+except name_error:
+    print("caught across frames")
+
+try:
+    read_file("/missing.txt")
+except file_not_found as e:
+    print("caught: " + e)
+
+i = 0
+caught = 0
+while i < 3:
+    try:
+        x = 10 / i
+    except zero_division:
+        caught = caught + 1
+    i = i + 1
+print(caught)

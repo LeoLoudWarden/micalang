@@ -41,7 +41,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         error = MicaError(
             "input required",
             kind="input_error",
-            filename="<mica:layer_0>",
+            filename="<mica>",
             line=snapshot["next_line"],
         )
         print(error, file=sys.stderr)

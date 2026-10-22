@@ -5,7 +5,20 @@ import ast
 from . import isa
 from .errors import MicaError
 
-RESERVED_NAMES = {"input", "print", "VM", "len", "int", "float", "str", "range"}
+RESERVED_NAMES = {
+    "input",
+    "print",
+    "VM",
+    "len",
+    "int",
+    "float",
+    "str",
+    "range",
+    "read_file",
+    "write_file",
+    "list_dir",
+    "path_exists",
+}
 
 _ALLOWED_NODES = {
     ast.Module,
@@ -17,6 +30,8 @@ _ALLOWED_NODES = {
     ast.Continue,
     ast.FunctionDef,
     ast.Return,
+    ast.Try,
+    ast.ExceptHandler,
     ast.Name,
     ast.Load,
     ast.Store,
@@ -31,6 +46,7 @@ _ALLOWED_NODES = {
     ast.Attribute,
     ast.arguments,
     ast.arg,
+    ast.keyword,
     ast.Add,
     ast.Sub,
     ast.Mult,
@@ -66,7 +82,19 @@ _COMPARE_OPS = {
     ast.Gt: ">",
     ast.GtE: ">="}
 
-VM_METHODS = {"run", "feed_input", "step", "step_instruction", "snapshot", "stdout", "terminate"}
+VM_METHODS = {
+    "run",
+    "feed_input",
+    "step",
+    "step_instruction",
+    "snapshot",
+    "stdout",
+    "terminate",
+    "read_file",
+    "write_file",
+    "list_dir",
+    "path_exists",
+}
 
 
 def compile_source(source: object, filename: str) -> isa.CodeUnit:
@@ -88,7 +116,79 @@ def compile_source(source: object, filename: str) -> isa.CodeUnit:
     compiler.compile_body(tree.body, code)
     compiler.emit(code, isa.LOAD_CONST, None, 0)
     compiler.emit(code, isa.RETURN, None, 0)
+    _analyze_stack(code, filename)
     return code
+
+
+_STACK_DELTAS = {
+    isa.LOAD_CONST: 1,
+    isa.LOAD_NAME: 1,
+    isa.DUP: 1,
+    isa.MAKE_FUNCTION: 1,
+    isa.STORE_NAME: -1,
+    isa.POP: -1,
+    isa.LOAD_INDEX: -1,
+    isa.BINARY_OP: -1,
+    isa.COMPARE_OP: -1,
+    isa.STORE_INDEX: -3,
+    isa.UNARY_OP: 0,
+    isa.LOAD_ATTR: 0,
+}
+
+
+def _analyze_stack(code: isa.CodeUnit, filename: str) -> None:
+    instrs = code.instrs
+    if not instrs:
+        return
+    depths: list[int | None] = [None] * len(instrs)
+    depths[0] = 0
+    worklist = [0]
+    while worklist:
+        i = worklist.pop()
+        depth = depths[i]
+        assert depth is not None
+        instr = instrs[i]
+        successors: list[tuple[int, int]] = []
+        if instr.op == isa.JUMP:
+            successors.append((instr.arg, depth))
+        elif instr.op == isa.JUMP_IF_FALSE:
+            successors.append((instr.arg, depth - 1))
+            successors.append((i + 1, depth - 1))
+        elif instr.op in (isa.JUMP_IF_TRUE_KEEP, isa.JUMP_IF_FALSE_KEEP):
+            successors.append((instr.arg, depth))
+            successors.append((i + 1, depth - 1))
+        elif instr.op == isa.RETURN:
+            pass
+        else:
+            if instr.op == isa.BUILD_LIST:
+                delta = 1 - instr.arg
+            elif instr.op == isa.CALL:
+                delta = -instr.arg
+            elif instr.op == isa.CALL_KW:
+                delta = -(instr.arg[0] + len(instr.arg[1]))
+            else:
+                delta = _STACK_DELTAS[instr.op]
+            successors.append((i + 1, depth + delta))
+        for target, target_depth in successors:
+            if target >= len(instrs):
+                raise MicaError(
+                    "compiler produced a jump out of range",
+                    kind="internal_error",
+                    filename=filename,
+                )
+            if depths[target] is None:
+                depths[target] = target_depth
+                worklist.append(target)
+            elif depths[target] != target_depth:
+                raise MicaError(
+                    "compiler produced inconsistent stack depths",
+                    kind="internal_error",
+                    filename=filename,
+                )
+    for handler in code.handlers:
+        start_depth = depths[handler.start]
+        if start_depth is not None:
+            handler.stack_depth = start_depth
 
 
 def _validate(tree: ast.Module, filename: str) -> None:
@@ -126,8 +226,15 @@ def _validate(tree: ast.Module, filename: str) -> None:
             parent = parents.get(node)
             if not (isinstance(parent, ast.Call) and parent.func is node):
                 _reject(node, filename, "VM methods can only be called directly")
-        if isinstance(node, ast.Call) and node.keywords:
-            _reject(node, filename, "keyword arguments are not supported")
+        if isinstance(node, ast.keyword) and node.arg is None:
+            _reject(node, filename, "** arguments are not supported")
+        if isinstance(node, ast.ExceptHandler):
+            if node.type is not None and not isinstance(node.type, ast.Name):
+                _reject(
+                    node,
+                    filename,
+                    "except clause must name an error kind",
+                )
         if isinstance(node, ast.FunctionDef):
             if node.name.startswith("__"):
                 _reject(node, filename, "dunder names are not available")
@@ -267,6 +374,7 @@ class _Compiler:
                 self._function_depth -= 1
             self.emit(child, isa.LOAD_CONST, None, 0)
             self.emit(child, isa.RETURN, None, 0)
+            _analyze_stack(child, self._filename)
             self.emit(code, isa.MAKE_FUNCTION, child, line)
             self.emit(code, isa.STORE_NAME, node.name, line)
             return
@@ -284,12 +392,60 @@ class _Compiler:
                 self.emit(code, isa.LOAD_CONST, None, line)
             self.emit(code, isa.RETURN, None, line)
             return
+        if isinstance(node, ast.Try):
+            self._compile_try(node, code)
+            return
         raise MicaError(
             f"unsupported statement: {type(node).__name__}",
             kind="validation_error",
             filename=self._filename,
             line=line,
         )
+
+    def _compile_try(self, node: ast.Try, code: isa.CodeUnit) -> None:
+        line = node.lineno
+        if node.orelse or node.finalbody:
+            raise MicaError(
+                "try/else and try/finally are not supported",
+                kind="validation_error",
+                filename=self._filename,
+                line=line,
+            )
+        if not node.handlers:
+            raise MicaError(
+                "try requires at least one except clause",
+                kind="validation_error",
+                filename=self._filename,
+                line=line,
+            )
+        body_start = len(code.instrs)
+        self.compile_body(node.body, code)
+        body_end = len(code.instrs)
+        exit_jumps = [self.emit(code, isa.JUMP, None, line)]
+        ranges: list[tuple[int, int, int, tuple[str, ...] | None, str | None]] = []
+        for handler in node.handlers:
+            target = len(code.instrs)
+            kinds = (
+                None
+                if handler.type is None
+                else (handler.type.id,)  # type: ignore[union-attr]
+            )
+            ranges.append((body_start, body_end, target, kinds, handler.name))
+            self.compile_body(handler.body, code)
+            exit_jumps.append(self.emit(code, isa.JUMP, None, line))
+        end = len(code.instrs)
+        for index in exit_jumps:
+            code.instrs[index].arg = end
+        for start, stop, target, kinds, bind in ranges:
+            code.handlers.append(
+                isa.Handler(
+                    start=start,
+                    end=stop,
+                    target=target,
+                    kinds=kinds,
+                    bind=bind,
+                )
+            )
 
     def compile_expression(self, node: ast.AST, code: isa.CodeUnit) -> None:
         line = getattr(node, "lineno", 0)
@@ -348,7 +504,17 @@ class _Compiler:
             self.compile_expression(node.func, code)
             for argument in node.args:
                 self.compile_expression(argument, code)
-            self.emit(code, isa.CALL, len(node.args), line)
+            if node.keywords:
+                for keyword in node.keywords:
+                    self.compile_expression(keyword.value, code)
+                self.emit(
+                    code,
+                    isa.CALL_KW,
+                    (len(node.args), tuple(kw.arg for kw in node.keywords)),
+                    line,
+                )
+            else:
+                self.emit(code, isa.CALL, len(node.args), line)
             return
         raise MicaError(
             f"unsupported expression: {type(node).__name__}",

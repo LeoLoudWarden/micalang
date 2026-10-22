@@ -84,13 +84,20 @@ class SubVMTests(unittest.TestCase):
         output = vm.run()
         self.assertEqual(output, "23\n\n")
 
-    def test_handle_repr_shows_layer(self):
+    def test_handle_repr_shows_id_and_state(self):
         engine = MicaEngine()
         vm = engine.create_root(SUB_VM_PROGRAM)
         vm.step()
         vm.step()
         sub = vm.snapshot()["locals"]["sub"]
-        self.assertIn("layer=1", sub)
+        self.assertIn("id=1", sub)
+        self.assertIn("state=ready", sub)
+
+    def test_nested_vm_creation(self):
+        mid_src = 'inner = VM("print(\'deep\')")\nprint(inner.run())\n'
+        engine = MicaEngine()
+        vm = engine.create_root(f"sub = VM({mid_src!r})\nprint(sub.run())\n")
+        self.assertEqual(vm.run(), "deep\n\n\n")
 
     def test_debug_sub_vm_from_root(self):
         engine = MicaEngine()
@@ -105,15 +112,12 @@ class SubVMTests(unittest.TestCase):
         output = vm.run()
         self.assertEqual(output, "hi\n\n")
 
-    def test_layer1_has_no_vm(self):
+    def test_layer1_can_create_vm(self):
+        mid_src = 'inner = VM("x = 1")\nprint(inner.snapshot())\n'
         engine = MicaEngine()
-        vm = engine.create_root(
-            'sub = VM("inner = VM(1)")\n'
-            "sub.run()\n"
-        )
-        with self.assertRaises(MicaError):
-            vm.run()
-        self.assertEqual(vm.snapshot()["state"], "error")
+        vm = engine.create_root(f"sub = VM({mid_src!r})\nprint(sub.run())\n")
+        output = vm.run()
+        self.assertIn("'state': 'ready'", output)
 
     def test_child_vm_stdout_does_not_leak_to_parent(self):
         engine = MicaEngine()

@@ -1,14 +1,27 @@
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 
 from . import isa
-from .compiler import compile_source
+from .compiler import VM_METHODS, compile_source
 from .errors import MicaError
 from .io import InputRequired, OutputLimitExceeded, VirtualIO
+from .vfs import VirtualFileSystem
 
 _TERMINAL_STATES = {"done", "error", "resource_exhausted", "terminated"}
+_UNCATCHABLE_KINDS = {"resource_exhausted", "internal_error"}
+_VM_OPTIONS = {
+    "max_instructions",
+    "max_output_bytes",
+    "max_frames",
+    "max_child_vms",
+    "max_list_size",
+    "max_vm_depth",
+    "max_fs_files",
+    "max_fs_file_bytes",
+}
 
 
 @dataclass(frozen=True)
@@ -18,6 +31,9 @@ class MicaLimits:
     max_frames: int = 100
     max_child_vms: int = 100
     max_list_size: int = 100_000
+    max_vm_depth: int = 8
+    max_fs_files: int = 1000
+    max_fs_file_bytes: int = 1_048_576
 
 
 @dataclass
@@ -45,10 +61,10 @@ class _NativeFunction:
 @dataclass
 class VMContext:
     vm_id: int
-    layer: int
+    depth: int
     parent_id: int | None
     io: VirtualIO
-    allow_vm: bool
+    fs: VirtualFileSystem
     limits: MicaLimits
     frames: list[Frame] = field(default_factory=list)
     state: str = "ready"
@@ -59,19 +75,11 @@ class VMContext:
 
     @property
     def filename(self) -> str:
-        return f"<mica:layer_{self.layer}>"
+        return f"<mica:vm_{self.vm_id}>"
 
 
 class VMHandle:
-    _METHODS = {
-        "run",
-        "feed_input",
-        "step",
-        "step_instruction",
-        "snapshot",
-        "stdout",
-        "terminate",
-    }
+    _METHODS = VM_METHODS
 
     def __init__(self, engine: MicaEngine, vm_id: int) -> None:
         self._engine = engine
@@ -110,12 +118,21 @@ class VMHandle:
         if context.state in {"ready", "waiting_input"}:
             context.state = "terminated"
 
+    def read_file(self, path: object) -> str:
+        return self._engine._context(self).fs.read_file(path)
+
+    def write_file(self, path: object, text: object) -> None:
+        self._engine._context(self).fs.write_file(path, text)
+
+    def list_dir(self, path: object) -> list[str]:
+        return self._engine._context(self).fs.list_dir(path)
+
+    def path_exists(self, path: object) -> bool:
+        return self._engine._context(self).fs.path_exists(path)
+
     def __repr__(self) -> str:
         context = self._engine._context(self)
-        return (
-            f"<VM id={context.vm_id} layer={context.layer} "
-            f"state={context.state}>"
-        )
+        return f"<VM id={context.vm_id} state={context.state}>"
 
 
 class MicaEngine:
@@ -140,9 +157,8 @@ class MicaEngine:
         return self._create_vm(
             source=source,
             parent_id=None,
-            layer=0,
+            depth=0,
             io=io,
-            allow_vm=True,
             limits=effective,
         )
 
@@ -151,21 +167,23 @@ class MicaEngine:
         *,
         source: str,
         parent_id: int | None,
-        layer: int,
+        depth: int,
         io: VirtualIO,
-        allow_vm: bool,
         limits: MicaLimits,
     ) -> VMHandle:
-        filename = f"<mica:layer_{layer}>"
+        filename = f"<mica:vm_{self._next_vm_id}>"
         code = compile_source(source, filename)
         vm_id = self._next_vm_id
         self._next_vm_id += 1
         context = VMContext(
             vm_id=vm_id,
-            layer=layer,
+            depth=depth,
             parent_id=parent_id,
             io=io,
-            allow_vm=allow_vm,
+            fs=VirtualFileSystem(
+                max_files=limits.max_fs_files,
+                max_file_bytes=limits.max_fs_file_bytes,
+            ),
             limits=limits,
             frames=[Frame(code=code)],
         )
@@ -224,6 +242,10 @@ class MicaEngine:
         frame = context.frames[-1]
         instr = frame.code.instrs[frame.pc]
         context.instruction_count += 1
+        ancestor = context
+        while ancestor.parent_id is not None:
+            ancestor = self._contexts[ancestor.parent_id]
+            ancestor.instruction_count += 1
         if context.instruction_count > context.limits.max_instructions:
             self._fail(
                 context,
@@ -244,6 +266,8 @@ class MicaEngine:
             )
             return False
         except MicaError as exc:
+            if self._handle_exception(context, exc):
+                return True
             self._fail(context, exc, instr.line)
             return False
         except Exception:
@@ -262,6 +286,38 @@ class MicaEngine:
             if error.kind == "resource_exhausted"
             else "error"
         )
+
+    def _handle_exception(self, context: VMContext, error: MicaError) -> bool:
+        if error.kind in _UNCATCHABLE_KINDS:
+            return False
+        while context.frames:
+            frame = context.frames[-1]
+            handler = self._find_handler(frame, error.kind)
+            if handler is None:
+                if len(context.frames) == 1:
+                    return False
+                context.frames.pop()
+                continue
+            del frame.stack[handler.stack_depth :]
+            if handler.bind is not None:
+                frame.locals[handler.bind] = error.message
+            frame.pc = handler.target
+            return True
+        return False
+
+    def _find_handler(
+        self, frame: Frame, kind: str
+    ) -> isa.Handler | None:
+        best: isa.Handler | None = None
+        pc = frame.pc
+        for handler in frame.code.handlers:
+            if not (handler.start <= pc < handler.end):
+                continue
+            if handler.kinds is not None and kind not in handler.kinds:
+                continue
+            if best is None or handler.start > best.start:
+                best = handler
+        return best
 
     def _dispatch(self, context: VMContext, frame: Frame, instr: isa.Instr) -> None:
         op = instr.op
@@ -330,7 +386,12 @@ class MicaEngine:
         elif op == isa.MAKE_FUNCTION:
             stack.append(MicaFunction(arg))
         elif op == isa.CALL:
-            self._call(context, frame, arg)
+            argc, kw_names = arg, ()
+            self._call(context, frame, argc, kw_names)
+            advance = False
+        elif op == isa.CALL_KW:
+            argc, kw_names = arg
+            self._call(context, frame, argc, kw_names)
             advance = False
         elif op == isa.RETURN:
             value = stack.pop() if stack else None
@@ -345,32 +406,32 @@ class MicaEngine:
         if advance and context.state == "ready":
             frame.pc += 1
 
-    def _call(self, context: VMContext, frame: Frame, argc: int) -> None:
+    def _call(
+        self,
+        context: VMContext,
+        frame: Frame,
+        argc: int,
+        kw_names: tuple[str, ...],
+    ) -> None:
         stack = frame.stack
-        function = stack[len(stack) - argc - 1]
+        base = len(stack) - argc - len(kw_names)
+        function = stack[base - 1]
+        args = tuple(stack[base : base + argc])
+        kwargs = dict(zip(kw_names, stack[base + argc :]))
         if isinstance(function, MicaFunction):
             code = function.code
-            if argc != len(code.params):
-                raise MicaError(
-                    f"{code.name}() expects {len(code.params)} "
-                    f"argument(s), got {argc}",
-                    kind="arity_error",
-                )
+            locals_ = self._bind_arguments(code, args, kwargs)
             if len(context.frames) + 1 > context.limits.max_frames:
                 raise MicaError(
                     "call depth limit exceeded", kind="resource_exhausted"
                 )
-            args = tuple(stack[len(stack) - argc :]) if argc else ()
-            del stack[len(stack) - argc - 1 :]
+            del stack[base - 1 :]
             frame.pc += 1
-            context.frames.append(
-                Frame(code=code, locals=dict(zip(code.params, args)))
-            )
+            context.frames.append(Frame(code=code, locals=locals_))
             return
         if isinstance(function, _NativeFunction):
-            args = tuple(stack[len(stack) - argc :]) if argc else ()
             try:
-                result = function.callback(*args)
+                result = function.callback(*args, **kwargs)
             except InputRequired:
                 raise
             except MicaError:
@@ -379,11 +440,45 @@ class MicaEngine:
                 raise MicaError(
                     f"invalid arguments for {function.name}", kind="type_error"
                 ) from None
-            del stack[len(stack) - argc - 1 :]
+            del stack[base - 1 :]
             frame.pc += 1
             stack.append(result)
             return
         raise MicaError("value is not callable", kind="type_error")
+
+    def _bind_arguments(
+        self,
+        code: isa.CodeUnit,
+        args: tuple[object, ...],
+        kwargs: dict[str, object],
+    ) -> dict[str, object]:
+        params = code.params
+        if len(args) > len(params):
+            raise MicaError(
+                f"{code.name}() expects {len(params)} argument(s), "
+                f"got {len(args)}",
+                kind="arity_error",
+            )
+        locals_ = dict(zip(params, args))
+        for key, value in kwargs.items():
+            if key in locals_:
+                raise MicaError(
+                    f"{code.name}() got multiple values for '{key}'",
+                    kind="arity_error",
+                )
+            if key not in params:
+                raise MicaError(
+                    f"{code.name}() got unexpected argument '{key}'",
+                    kind="arity_error",
+                )
+            locals_[key] = value
+        if len(locals_) != len(params):
+            missing = [name for name in params if name not in locals_]
+            raise MicaError(
+                f"{code.name}() missing argument(s): {', '.join(missing)}",
+                kind="arity_error",
+            )
+        return locals_
 
     def _load_name(self, context: VMContext, frame: Frame, name: str) -> object:
         if name in frame.locals:
@@ -415,15 +510,46 @@ class MicaEngine:
             return _NativeFunction(
                 "range", lambda *args: self._range(context, args)
             )
-        if name == "VM" and context.allow_vm:
+        if name == "read_file":
+            return _NativeFunction("read_file", context.fs.read_file)
+        if name == "write_file":
+            return _NativeFunction("write_file", context.fs.write_file)
+        if name == "list_dir":
+            return _NativeFunction("list_dir", context.fs.list_dir)
+        if name == "path_exists":
+            return _NativeFunction("path_exists", context.fs.path_exists)
+        if name == "VM":
             return _NativeFunction(
-                "VM", lambda source: self._create_child(context, source)
+                "VM",
+                lambda source, **kwargs: self._create_child(
+                    context, source, kwargs
+                ),
             )
         return None
 
-    def _create_child(self, parent: VMContext, source: object) -> VMHandle:
+    def _create_child(
+        self, parent: VMContext, source: object, config: dict[str, object]
+    ) -> VMHandle:
         if not isinstance(source, str):
             raise MicaError("VM source must be a string", kind="type_error")
+        limits = parent.limits
+        if config:
+            overrides: dict[str, int] = {}
+            for key, value in config.items():
+                if key not in _VM_OPTIONS:
+                    raise MicaError(
+                        f"unknown VM option: {key}", kind="type_error"
+                    )
+                if type(value) is not int or value < 0:
+                    raise MicaError(
+                        f"VM option {key} must be a non-negative int",
+                        kind="type_error",
+                    )
+                overrides[key] = min(getattr(parent.limits, key), value)
+            limits = dataclasses.replace(parent.limits, **overrides)
+        depth = parent.depth + 1
+        if depth > limits.max_vm_depth:
+            raise MicaError("VM depth limit exceeded", kind="resource_exhausted")
         if parent.child_count >= parent.limits.max_child_vms:
             raise MicaError(
                 "child VM limit exceeded", kind="resource_exhausted"
@@ -432,10 +558,9 @@ class MicaEngine:
         return self._create_vm(
             source=source,
             parent_id=parent.vm_id,
-            layer=parent.layer + 1,
-            io=VirtualIO(max_output_bytes=parent.limits.max_output_bytes),
-            allow_vm=False,
-            limits=parent.limits,
+            depth=depth,
+            io=VirtualIO(max_output_bytes=limits.max_output_bytes),
+            limits=limits,
         )
 
     def _print(self, context: VMContext, values: tuple[object, ...]) -> None:
@@ -634,7 +759,6 @@ class MicaEngine:
             }
         return {
             "vm_id": context.vm_id,
-            "layer": context.layer,
             "state": context.state,
             "last_line": context.last_line,
             "next_line": next_line,

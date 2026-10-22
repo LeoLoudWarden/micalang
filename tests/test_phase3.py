@@ -1,0 +1,328 @@
+import unittest
+
+from mica import MicaEngine, MicaError, MicaLimits
+
+
+def run(source, inputs=None, limits=None):
+    engine = MicaEngine(limits=limits)
+    vm = engine.create_root(source)
+    return vm.run(inputs)
+
+
+class TryExceptTests(unittest.TestCase):
+    def test_catch_by_kind_with_message(self):
+        source = (
+            "try:\n"
+            "    x = 1 / 0\n"
+            "except zero_division as e:\n"
+            '    print("caught: " + e)\n'
+        )
+        self.assertEqual(run(source), "caught: division by zero\n")
+
+    def test_kind_filter_selects_matching_clause(self):
+        source = (
+            "try:\n"
+            "    x = missing\n"
+            "except zero_division:\n"
+            '    print("wrong")\n'
+            "except name_error:\n"
+            '    print("right")\n'
+            "except:\n"
+            '    print("fallback")\n'
+        )
+        self.assertEqual(run(source), "right\n")
+
+    def test_bare_except_catches_all(self):
+        source = (
+            "try:\n"
+            '    x = int("abc")\n'
+            "except:\n"
+            '    print("caught")\n'
+        )
+        self.assertEqual(run(source), "caught\n")
+
+    def test_non_matching_kind_propagates(self):
+        engine = MicaEngine()
+        vm = engine.create_root(
+            "try:\n    x = missing\nexcept zero_division:\n    y = 1\n"
+        )
+        with self.assertRaises(MicaError) as ctx:
+            vm.run()
+        self.assertEqual(ctx.exception.kind, "name_error")
+
+    def test_exception_across_function_frames(self):
+        source = (
+            "def f():\n"
+            "    return missing + 1\n"
+            "try:\n"
+            "    f()\n"
+            "except name_error:\n"
+            '    print("caught across frames")\n'
+        )
+        self.assertEqual(run(source), "caught across frames\n")
+
+    def test_stack_sane_after_catch(self):
+        source = (
+            "caught = 0\n"
+            "i = 0\n"
+            "while i < 3:\n"
+            "    try:\n"
+            "        x = 1 / i\n"
+            "    except zero_division:\n"
+            "        caught = caught + 1\n"
+            "    i = i + 1\n"
+            "print(caught)\n"
+            "print(1 + 2)\n"
+        )
+        self.assertEqual(run(source), "1\n3\n")
+
+    def test_break_inside_try_in_loop(self):
+        source = (
+            "while True:\n"
+            "    try:\n"
+            "        x = 1 / 0\n"
+            "    except zero_division:\n"
+            "        break\n"
+            'print("out")\n'
+        )
+        self.assertEqual(run(source), "out\n")
+
+    def test_resource_exhausted_not_catchable(self):
+        limits = MicaLimits(max_instructions=500)
+        source = (
+            "try:\n"
+            "    while True:\n"
+            "        x = 1\n"
+            "except resource_exhausted:\n"
+            '    print("must not happen")\n'
+        )
+        engine = MicaEngine(limits=limits)
+        vm = engine.create_root(source)
+        with self.assertRaises(MicaError) as ctx:
+            vm.run()
+        self.assertEqual(ctx.exception.kind, "resource_exhausted")
+        self.assertNotIn("must not happen", vm.stdout())
+
+    def test_child_vm_error_caught_by_parent(self):
+        source = (
+            'sub = VM("x = missing")\n'
+            "try:\n"
+            "    sub.run()\n"
+            "except name_error as e:\n"
+            '    print("parent caught: " + e)\n'
+        )
+        self.assertIn("parent caught:", run(source))
+
+    def test_finally_rejected(self):
+        engine = MicaEngine()
+        with self.assertRaises(MicaError) as ctx:
+            engine.create_root(
+                "try:\n    x = 1\nexcept:\n    y = 2\nfinally:\n    z = 3\n"
+            )
+        self.assertEqual(ctx.exception.kind, "validation_error")
+
+
+class KeywordCallTests(unittest.TestCase):
+    def test_user_function_kwargs(self):
+        source = (
+            "def sub(a, b):\n"
+            "    return a - b\n"
+            "print(sub(b=1, a=5))\n"
+            "print(sub(5, b=1))\n"
+        )
+        self.assertEqual(run(source), "4\n4\n")
+
+    def test_unknown_kwarg(self):
+        with self.assertRaises(MicaError) as ctx:
+            run("def f(a):\n    return a\nf(b=1)\n")
+        self.assertEqual(ctx.exception.kind, "arity_error")
+
+    def test_duplicate_argument(self):
+        with self.assertRaises(MicaError) as ctx:
+            run("def f(a):\n    return a\nf(1, a=2)\n")
+        self.assertEqual(ctx.exception.kind, "arity_error")
+
+
+class NestedVMTests(unittest.TestCase):
+    def test_vm_config_limits_child(self):
+        source = (
+            'sub = VM("while True:\\n    x = 1", max_instructions=100)\n'
+            "sub.run()\n"
+        )
+        engine = MicaEngine()
+        vm = engine.create_root(source)
+        with self.assertRaises(MicaError) as ctx:
+            vm.run()
+        self.assertEqual(ctx.exception.kind, "resource_exhausted")
+
+    def test_vm_config_clamped_to_parent(self):
+        limits = MicaLimits(max_instructions=300)
+        source = (
+            'sub = VM("while True:\\n    x = 1", max_instructions=999999)\n'
+            "sub.run()\n"
+        )
+        engine = MicaEngine(limits=limits)
+        vm = engine.create_root(source)
+        with self.assertRaises(MicaError):
+            vm.run()
+        sub_handle = None
+        for value in engine._contexts.values():
+            if value.parent_id is not None:
+                sub_handle = value
+        self.assertIsNotNone(sub_handle)
+        self.assertLessEqual(sub_handle.instruction_count, 301)
+
+    def test_unknown_vm_option(self):
+        with self.assertRaises(MicaError) as ctx:
+            run('sub = VM("x = 1", nope=1)\n')
+        self.assertEqual(ctx.exception.kind, "type_error")
+
+    def test_vm_depth_limit(self):
+        limits = MicaLimits(max_vm_depth=2)
+        level3 = "x = 1"
+        level2 = f"sub = VM({level3!r})\nsub.run()"
+        level1 = f"sub = VM({level2!r})\nsub.run()"
+        source = f"sub = VM({level1!r})\nsub.run()\n"
+        engine = MicaEngine(limits=limits)
+        vm = engine.create_root(source)
+        with self.assertRaises(MicaError) as ctx:
+            vm.run()
+        self.assertEqual(ctx.exception.kind, "resource_exhausted")
+
+    def test_ancestor_instruction_charging(self):
+        child_src = "i = 0\nwhile i < 20:\n    i = i + 1\nprint(i)\n"
+        engine = MicaEngine()
+        vm = engine.create_root(f"sub = VM({child_src!r})\nprint(sub.run())\n")
+        vm.run()
+        child = next(c for c in engine._contexts.values() if c.parent_id == 0)
+        root_count = vm.snapshot()["instruction_count"]
+        self.assertGreaterEqual(
+            root_count, child.instruction_count,
+            "root 的指令计数应包含子 VM 的消耗",
+        )
+
+
+class VFSTests(unittest.TestCase):
+    def test_write_and_read(self):
+        source = (
+            'write_file("/notes/todo.txt", "buy milk")\n'
+            'print(read_file("/notes/todo.txt"))\n'
+        )
+        self.assertEqual(run(source), "buy milk\n")
+
+    def test_list_dir_sorted(self):
+        source = (
+            'write_file("/b.txt", "b")\n'
+            'write_file("/a/x.txt", "x")\n'
+            'write_file("/a/y.txt", "y")\n'
+            "print(list_dir(\"/\"))\n"
+            'print(list_dir("/a"))\n'
+        )
+        self.assertEqual(run(source), "['a', 'b.txt']\n['x.txt', 'y.txt']\n")
+
+    def test_path_exists(self):
+        source = (
+            'write_file("/a/b.txt", "x")\n'
+            'print(path_exists("/a"))\n'
+            'print(path_exists("/a/b.txt"))\n'
+            'print(path_exists("/nope"))\n'
+        )
+        self.assertEqual(run(source), "True\nTrue\nFalse\n")
+
+    def test_path_normalization_no_escape(self):
+        source = (
+            'write_file("/a/../b.txt", "x")\n'
+            'print(read_file("b.txt"))\n'
+            'print(path_exists("../../b.txt"))\n'
+        )
+        self.assertEqual(run(source), "x\nTrue\n")
+
+    def test_read_missing_file(self):
+        source = (
+            "try:\n"
+            '    read_file("/missing.txt")\n'
+            "except file_not_found as e:\n"
+            '    print("caught: " + e)\n'
+        )
+        self.assertEqual(run(source), "caught: no such file: /missing.txt\n")
+
+    def test_directory_errors(self):
+        source = (
+            'write_file("/d/f.txt", "x")\n'
+            "try:\n"
+            '    read_file("/d")\n'
+            "except is_directory:\n"
+            '    print("is dir")\n'
+            "try:\n"
+            '    write_file("/d", "x")\n'
+            "except is_directory:\n"
+            '    print("is dir 2")\n'
+            "try:\n"
+            '    list_dir("/d/f.txt")\n'
+            "except not_directory:\n"
+            '    print("not dir")\n'
+        )
+        self.assertEqual(run(source), "is dir\nis dir 2\nnot dir\n")
+
+    def test_file_count_limit(self):
+        limits = MicaLimits(max_fs_files=2)
+        source = (
+            'write_file("/a", "1")\n'
+            'write_file("/b", "2")\n'
+            'write_file("/c", "3")\n'
+        )
+        engine = MicaEngine(limits=limits)
+        vm = engine.create_root(source)
+        with self.assertRaises(MicaError) as ctx:
+            vm.run()
+        self.assertEqual(ctx.exception.kind, "resource_exhausted")
+
+    def test_file_size_limit(self):
+        limits = MicaLimits(max_fs_file_bytes=5)
+        engine = MicaEngine(limits=limits)
+        vm = engine.create_root('write_file("/a", "123456")\n')
+        with self.assertRaises(MicaError) as ctx:
+            vm.run()
+        self.assertEqual(ctx.exception.kind, "resource_exhausted")
+
+    def test_child_fs_isolated(self):
+        source = (
+            'write_file("/secret.txt", "parent data")\n'
+            'sub = VM("print(path_exists(\\"/secret.txt\\"))")\n'
+            "sub.run()\n"
+        )
+        engine = MicaEngine()
+        vm = engine.create_root(source)
+        vm.run()
+        child = next(c for c in engine._contexts.values() if c.parent_id == 0)
+        self.assertFalse(child.fs.path_exists("/secret.txt"))
+
+    def test_parent_presets_child_files(self):
+        source = (
+            'sub = VM("print(read_file(\\"/config.txt\\"))")\n'
+            'sub.write_file("/config.txt", "preset")\n'
+            "print(sub.run())\n"
+        )
+        self.assertEqual(run(source), "preset\n\n")
+
+    def test_parent_reads_child_output_file(self):
+        source = (
+            'sub = VM("write_file(\\"/result.txt\\", \\"done\\")")\n'
+            "sub.run()\n"
+            'print(sub.read_file("/result.txt"))\n'
+        )
+        self.assertEqual(run(source), "done\n")
+
+    def test_host_presets_and_inspects(self):
+        engine = MicaEngine()
+        vm = engine.create_root(
+            "content = read_file(\"/input.txt\")\n"
+            "write_file(\"/output.txt\", content + \"!\")\n"
+        )
+        vm.write_file("/input.txt", "hello")
+        vm.run()
+        self.assertEqual(vm.read_file("/output.txt"), "hello!")
+
+
+if __name__ == "__main__":
+    unittest.main()

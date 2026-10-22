@@ -1,0 +1,11 @@
+write_file("/notes/todo.txt", "buy milk")
+write_file("/notes/ideas.txt", "mica vm")
+print(list_dir("/notes"))
+print(read_file("/notes/todo.txt"))
+print(path_exists("/notes"))
+
+sub = VM("print(read_file(\"/config.txt\"))\nwrite_file(\"/result.txt\", \"done\")")
+sub.write_file("/config.txt", "preset from parent")
+print(sub.run())
+print(sub.read_file("/result.txt"))
+print(path_exists("/config.txt"))

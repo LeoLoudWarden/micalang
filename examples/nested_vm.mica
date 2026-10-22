@@ -1,0 +1,11 @@
+grandchild = "print(\"hello from the deepest VM\")"
+
+child_code = """
+sub = VM("print(\\"hello from the deepest VM\\")", max_instructions=10000)
+out = sub.run()
+print("child captured: " + out)
+"""
+
+child = VM(child_code)
+print("root captured:")
+print(child.run())
