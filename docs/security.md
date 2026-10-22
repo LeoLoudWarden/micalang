@@ -1,0 +1,60 @@
+# Mica Security Model
+
+This document describes Mica's threat model: what the engine guarantees, what it does not, known limitations, and how to report security issues. **If you plan to run untrusted code with Mica, read this document first.**
+
+## 1. Threat model
+
+The target scenario: a host program receives a **not-fully-trusted script** (e.g. LLM-generated code, user-submitted scripts), needs to execute it, but must not allow it to read or write host state, consume unbounded resources, or learn anything about the environment it runs in.
+
+Defense comes in two layers, and so does responsibility:
+
+- **The engine is responsible for isolation itself holding** (section 2).
+- **The capability's implementer is responsible for the capability's safety**: if you grant a VM a function via FFI, whether that function is safe inside is on you. The engine's philosophy is to keep its kernel minimal, to reduce exploitable surface inside the language itself.
+
+## 2. What the engine guarantees
+
+By design promise (and covered by regression tests), a script inside a VM:
+
+- **cannot see** parent variables, parent files, host objects, or Python reflection entry points;
+- **cannot tell** how deeply it is nested; error and debug views contain only logical source locations and safe values — no host tracebacks or real paths leak through;
+- **cannot bypass** resource quotas: instruction count, output bytes, call depth, child VM count, nesting depth, container sizes, string bytes, integer bit width, approximate total memory, file count and per-file bytes are all capped, and a child VM's consumption is charged to all its ancestors;
+- **cannot swallow** `resource_exhausted` or `internal_error` — these two kinds are not catchable by script try/except, so quotas cannot be eaten by the script;
+- **cannot receive** raw host exceptions: exceptions crossing the host boundary are sanitized into `ffi_error`, carrying only the host exception's type name.
+
+Isolation holds on the premise of a single execution path: all VMs are driven by the same engine through one dispatch loop, and scripts cannot reach the host around the compiler's whitelist.
+
+## 3. What the engine does not guarantee
+
+Each of the following matters equally; evaluate them before use:
+
+1. **The current engine is implemented in Python and runs in the host's process.** Implementation flaws in the engine or CPython itself could, in theory, break isolation. Mica has not been through a formal external security audit; before 0.1.0 it only received internal and third-party adversarial review (section 4). **Against truly adversarial code, do not treat Mica as your only isolation boundary** — production deployments should add an OS-level layer (separate process, container, etc.) around Mica; Mica's job is language-level behavioral constraint and resource governance.
+2. **Host function execution time and memory are not metered.** FFI functions are trusted code; their CPU/memory cost is the host's own discipline. A malicious or runaway host function is outside quota coverage.
+3. **The cost model is approximate.** Memory accounting uses approximate byte counts and only ever increases (high-water mark); O(n) operations are charged to the instruction count at a discounted rate. It defends against *unbounded growth*, not exact measurement.
+4. **Default quotas are not safe values.** Defaults target development and debugging; tighten them explicitly when running untrusted code.
+
+## 4. Review so far
+
+Before 0.1.0 the prototype went through one round of adversarial security review (independent internal audit plus a third-party perspective), with the scenario set as "an LLM produces arbitrary malicious code executed via `mica_exec`". Coverage: isolation escape (whitelist / dunder / attribute access), denial of service (unbounded resource growth, snapshot amplification, compounding via tree-shaped child-VM creation), information leak (FFI messages, error views, snapshot contents), compile-time attacks (recursion stack overflow, oversized source). All findings were fixed and pinned with regression tests.
+
+For responsible disclosure, concrete attack payloads are not listed in public documents. If you need to evaluate whether a class of attack is covered, open an issue or ask privately (next section).
+
+## 5. Known semantic deviations
+
+The following behaviors differ from intuition or from Python, as deliberate prototype trade-offs. They are not security holes, but you should know them before writing programs that depend on exact semantics:
+
+- If an exception is raised inside a finally copy, the outer finally may run one extra time;
+- A bare `raise` after nested except blocks may re-throw an exception other than the outermost one;
+- Iterating a list with for is a live view; iterating a dict is a key snapshot;
+- A finished VM's execution context stays on the engine (for debug inspection); there is no explicit disposal yet.
+
+The full list is in the "known boundaries" section of the architecture notes ([中文](architecture.zh-CN.md)).
+
+## 6. Reporting security issues
+
+Please use GitHub's private vulnerability reporting (repository page → Security → Report a vulnerability) and do not disclose details publicly before a fix is released. Examples of what falls within the engine's responsibility are in [SECURITY.md](../SECURITY.md) at the repository root.
+
+## 7. Usage advice
+
+- When running untrusted code, set quotas explicitly at every VM layer; do not rely on defaults.
+- Grant only the capabilities a script actually needs; validate inputs and bound resources inside the functions you grant.
+- Treat Mica as the language layer of a defense-in-depth setup, not the only boundary.

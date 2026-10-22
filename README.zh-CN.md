@@ -13,7 +13,7 @@
 
 0.1.0 原型。引擎是 Python 参考实现（代号 **Mica-PY**）：零运行时依赖，Python ≥ 3.12，198 个回归测试用例。1.0 之前 API 与语义可能变化。
 
-> **安全提示。** Mica 为隔离而设计，但当前原型与宿主同进程运行，未经正式安全审计。执行对抗性代码时，不要把 Mica 当作**唯一**的隔离边界。引擎保证什么、不保证什么，见[安全模型](docs/security.zh-CN.md)。
+> **安全提示。** Mica 为隔离而设计，但当前原型与宿主同进程运行，未经正式安全审计。执行对抗性代码时，不要把 Mica 当作**唯一**的隔离边界。引擎保证什么、不保证什么，见[安全模型](https://github.com/LeoLoudWarden/micalang/blob/main/docs/security.zh-CN.md)。
 
 ## 安装
 
@@ -69,16 +69,16 @@ print(vm.run(), end="")    # 42
 
 | 文档 | 内容 |
 |---|---|
-| [设计说明](docs/design.zh-CN.md) | Mica 是什么、为什么存在、边界划在哪里 |
-| [语言参考](docs/language-reference.zh-CN.md) | 自完备的语言子集与语义 |
-| [架构说明](docs/architecture.zh-CN.md) | 引擎结构、设计不变量、资源配额 |
-| [安全模型](docs/security.zh-CN.md) | 威胁模型；引擎保证什么、不保证什么 |
-| [构建手记](docs/stages/README.md) | Mica 0.1.0 逐阶段构建过程，含可运行检查点（`git checkout stage-1` … `stage-6`） |
-| [幕后](docs/behind-the-scenes/README.md) | 项目由来与 AI 辅助开发过程 |
+| [设计说明](https://github.com/LeoLoudWarden/micalang/blob/main/docs/design.zh-CN.md) | Mica 是什么、为什么存在、边界划在哪里（[English](https://github.com/LeoLoudWarden/micalang/blob/main/docs/design.md)） |
+| [语言参考](https://github.com/LeoLoudWarden/micalang/blob/main/docs/language-reference.zh-CN.md) | 自完备的语言子集与语义（[English](https://github.com/LeoLoudWarden/micalang/blob/main/docs/language-reference.md)） |
+| [架构说明](https://github.com/LeoLoudWarden/micalang/blob/main/docs/architecture.zh-CN.md) | 引擎结构、设计不变量、资源配额 |
+| [安全模型](https://github.com/LeoLoudWarden/micalang/blob/main/docs/security.zh-CN.md) | 威胁模型；引擎保证什么、不保证什么（[English](https://github.com/LeoLoudWarden/micalang/blob/main/docs/security.md)） |
+| [构建手记](https://github.com/LeoLoudWarden/micalang/blob/main/docs/stages/README.md) | Mica 0.1.0 逐阶段构建过程，含可运行检查点（`git checkout stage-1` … `stage-6`） |
+| [幕后](https://github.com/LeoLoudWarden/micalang/blob/main/docs/behind-the-scenes/README.md) | 项目由来与 AI 辅助开发过程 |
 
 ## 这个项目是怎么写出来的
 
-Mica 全程使用 AI 辅助开发——设计讨论、实现、测试、对抗性审查、文档起草。AI 做了什么、作者做了什么、产出如何被验证，记录在 [AI 辅助开发说明](docs/behind-the-scenes/ai-assisted-development.zh-CN.md)，附开发对话选编。
+Mica 全程使用 AI 辅助开发——设计讨论、实现、测试、对抗性审查、文档起草。AI 做了什么、作者做了什么、产出如何被验证，记录在 [AI 辅助开发说明](https://github.com/LeoLoudWarden/micalang/blob/main/docs/behind-the-scenes/ai-assisted-development.zh-CN.md)，附开发对话选编。
 
 ## 路线图
 
@@ -95,4 +95,4 @@ Mica（云母）是一种层状矿物：可以沿解理面剥成薄片，每一�
 
 ## 许可证
 
-[Apache-2.0](LICENSE)——见 [NOTICE](NOTICE)。
+[Apache-2.0](https://github.com/LeoLoudWarden/micalang/blob/main/LICENSE)——见 [NOTICE](https://github.com/LeoLoudWarden/micalang/blob/main/NOTICE)。

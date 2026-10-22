@@ -9,13 +9,13 @@
 
 Syntax borrows a subset of Python, but Mica source is compiled into Mica's own instruction stream and executed by the Mica engine — never through `exec`/`eval`. Every VM starts with zero capabilities: its own virtual IO, its own in-memory filesystem, and the ability to create child VMs. Everything else (network, host data, whatever you choose) is granted explicitly, layer by layer, through FFI.
 
-[中文文档与项目说明](README.zh-CN.md)
+[中文文档与项目说明](https://github.com/LeoLoudWarden/micalang/blob/main/README.zh-CN.md)
 
 ## Status
 
 0.1.0 prototype. The engine is a Python reference implementation (codename **Mica-PY**): zero runtime dependencies, Python ≥ 3.12, 198 regression tests. APIs and semantics may change before 1.0.
 
-> **Security note.** Mica is designed for isolation, but the current prototype runs in the host process and has not been formally audited. Do not rely on it as the *only* boundary when executing adversarial code. See the [security model](docs/security.zh-CN.md) (中文) for exactly what is and is not guaranteed.
+> **Security note.** Mica is designed for isolation, but the current prototype runs in the host process and has not been formally audited. Do not rely on it as the *only* boundary when executing adversarial code. See the [security model](https://github.com/LeoLoudWarden/micalang/blob/main/docs/security.md) for exactly what is and is not guaranteed.
 
 ## Install
 
@@ -71,18 +71,18 @@ A VM is a cheap, self-contained workspace:
 
 | Document | Language | Contents |
 |---|---|---|
-| [Design notes](docs/design.zh-CN.md) | 中文 | What Mica is, why it exists, where the boundaries are |
-| [Language reference](docs/language-reference.zh-CN.md) | 中文 | The language subset and semantics, self-contained |
-| [Architecture](docs/architecture.zh-CN.md) | 中文 | Engine structure, invariants, resource quotas |
-| [Security model](docs/security.zh-CN.md) | 中文 | Threat model; what the engine does and does not guarantee |
-| [Build journal](docs/stages/README.md) | 中文 | How Mica 0.1.0 was built, stage by stage, with runnable checkpoints (`git checkout stage-1` … `stage-6`) |
-| [Behind the scenes](docs/behind-the-scenes/README.md) | 中文 | Origin story and how AI-assisted development was used |
+| [Design notes](https://github.com/LeoLoudWarden/micalang/blob/main/docs/design.md) | EN | What Mica is, why it exists, where the boundaries are ([中文](https://github.com/LeoLoudWarden/micalang/blob/main/docs/design.zh-CN.md)) |
+| [Language reference](https://github.com/LeoLoudWarden/micalang/blob/main/docs/language-reference.md) | EN | The language subset and semantics, self-contained ([中文](https://github.com/LeoLoudWarden/micalang/blob/main/docs/language-reference.zh-CN.md)) |
+| [Architecture](https://github.com/LeoLoudWarden/micalang/blob/main/docs/architecture.zh-CN.md) | 中文 | Engine structure, invariants, resource quotas |
+| [Security model](https://github.com/LeoLoudWarden/micalang/blob/main/docs/security.md) | EN | Threat model; what the engine does and does not guarantee ([中文](https://github.com/LeoLoudWarden/micalang/blob/main/docs/security.zh-CN.md)) |
+| [Build journal](https://github.com/LeoLoudWarden/micalang/blob/main/docs/stages/README.md) | 中文 | How Mica 0.1.0 was built, stage by stage, with runnable checkpoints (`git checkout stage-1` … `stage-6`) |
+| [Behind the scenes](https://github.com/LeoLoudWarden/micalang/blob/main/docs/behind-the-scenes/README.md) | 中文 | Origin story and how AI-assisted development was used |
 
-An English documentation set is planned after 0.1.0.
+Architecture notes, build journal, and behind-the-scenes are currently 中文-only; English versions are planned.
 
 ## How this project was built
 
-Mica was developed with AI assistance throughout — design discussion, implementation, testing, adversarial review, and documentation drafting. What the AI did, what the author did, and how outputs were verified are documented in [AI-assisted development](docs/behind-the-scenes/ai-assisted-development.zh-CN.md) (中文), with selected conversation records alongside.
+Mica was developed with AI assistance throughout — design discussion, implementation, testing, adversarial review, and documentation drafting. What the AI did, what the author did, and how outputs were verified are documented in [AI-assisted development](https://github.com/LeoLoudWarden/micalang/blob/main/docs/behind-the-scenes/ai-assisted-development.zh-CN.md) (中文), with selected conversation records alongside.
 
 ## Roadmap
 
@@ -99,4 +99,4 @@ Not related to the Windows "Mica" UI material, the PyPI bioinformatics package M
 
 ## License
 
-[Apache-2.0](LICENSE) — see [NOTICE](NOTICE).
+[Apache-2.0](https://github.com/LeoLoudWarden/micalang/blob/main/LICENSE) — see [NOTICE](https://github.com/LeoLoudWarden/micalang/blob/main/NOTICE).
