@@ -1,6 +1,6 @@
 # 从零构建 Mica
 
-> **更名说明（2026-10-22）**：本项目原名 Mica/MicaLang，发布后更名为 Sericite（发行包与 CLI 为 `sericite`，扩展名 `.sericite`）。本文为历史构建手记，正文保留当时的名字与命令，阅读时将 `mica`/`micalang` 对应为 `sericite` 即可。
+> **更名说明（2026-10-22）**：本系列成文于项目名为 Mica 的时期，文中 Mica 即今 Sericite（发行包与 CLI 为 `sericite`，扩展名 `.sericite`）。本文为历史构建手记，正文保留当时的名字与命令，阅读时将 `mica`/`micalang` 对应为 `sericite` 即可。
 
 这个系列讲 Mica 0.1.0 是怎么被造出来的：从一个只能执行两条语句的 AST 原型，到有编译器、虚拟文件系统、能力授予、资源配额的引擎，再到一个完整的 LLM 代码执行 demo。每个阶段对应一个 git tag，可以 checkout 下来实际运行。
 
@@ -57,7 +57,7 @@ python -m unittest discover -s tests   # 运行该阶段的测试套件
 
 每个 tag 上的代码都是当时完整可运行的状态，测试套件在当时全部通过。想对比两个阶段的变化，用 `git diff stage-1 stage-2`。
 
-注意：`stage-1` 到 `stage-6` 的快照保持当时的扁平布局（`mica/` 在仓库根目录）；0.1.0 的发布打磨提交将代码迁移到了 `src/mica/`。文章中的文件路径（如 `mica/engine.py`）对应各 stage 的快照，在 `main` 上请对应到 `src/mica/engine.py`。
+注意：`stage-1` 到 `stage-6` 的快照保持当时的扁平布局（`mica/` 在仓库根目录）；0.1.0 的发布打磨提交将代码迁移到了 `src/mica/`，0.2.0 更名后为 `src/sericite/`。文章中的文件路径（如 `mica/engine.py`）对应各 stage 的快照，在 `main` 上请对应到 `src/sericite/engine.py`。
 
 ## 写给想动手复刻的人
 

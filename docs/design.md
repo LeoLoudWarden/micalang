@@ -30,7 +30,7 @@ You might ask: hasn't this been done? The honest answer is yes — once, almost 
 
 But Safe-Tcl stopped halfway, and said so itself: its 1998 security-model paper admits "Safe-Tcl currently does not prevent most denial-of-service attacks", promising future "resource controls and a kill-key". Tcl only gained per-interpreter resource limits in 8.5 (TIP 143) — wall-clock time and command count only, no memory or output accounting, nothing charged to ancestors — and the kill-key arrived in 8.6 (`interp cancel`). Sericite's position in this lineage is precise: keep the validated core (zero capabilities by default, explicit granting, recursive nesting), and supply the missing half — the quota tree, and the child VM as an inspectable object (stepping, snapshots, termination). WASM runtimes, microVM sandboxes, gVisor, and Starlark each solve adjacent points on the cost spectrum, but none of them makes "creating an isolated world" a statement-level capability of the language itself with resource governance built into the nesting relation. See [prior art and related work](prior-art.md) for the full comparison.
 
-Why insist on *arbitrary nesting* rather than one layer? Because the need for isolation is recursive: your program receives an untrusted script and runs it in isolation — and that script, once running, needs to execute code it obtained dynasericitelly. Untrustworthiness in the real world is passed down layer by layer; the isolation mechanism should be able to follow it, not just guard the front gate.
+Why insist on *arbitrary nesting* rather than one layer? Because the need for isolation is recursive: your program receives an untrusted script and runs it in isolation — and that script, once running, needs to execute code it obtained dynamically. Untrustworthiness in the real world is passed down layer by layer; the isolation mechanism should be able to follow it, not just guard the front gate.
 
 ## 3. Core ideas
 
@@ -65,7 +65,7 @@ This design splits security responsibility into two clearly bounded halves:
 
 A common misreading must be corrected: **Sericite is not "a tool for LLMs".**
 
-The real relationship is this: LLM applications are Sericite's most direct and realistic current driver — when a system must dynasericitelly face hundreds or thousands of generated scripts, all of which must run in isolation, "cheap, nestable isolation" goes from nice-to-have to hard requirement. Sericite was born of this era's demand.
+The real relationship is this: LLM applications are Sericite's most direct and realistic current driver — when a system must dynamically face hundreds or thousands of generated scripts, all of which must run in isolation, "cheap, nestable isolation" goes from nice-to-have to hard requirement. Sericite was born of this era's demand.
 
 But the relationship is one-directional: **the scenario chose Sericite; Sericite's design is not coupled to the scenario.** The Sericite engine does not know what an LLM is, has no LLM-related built-ins, and does not depend on any model service in any form; without the LLM scenario, the proposition of "cheap, nestable, user-space isolation" still stands. You can, at the application layer, hang the Sericite engine behind a tool like `sericite_exec` on some LLM service's tool list — the engine itself does not care how you use it.
 

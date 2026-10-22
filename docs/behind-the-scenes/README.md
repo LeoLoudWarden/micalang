@@ -1,6 +1,6 @@
 # 幕后
 
-> **更名说明（2026-10-22）**：本项目原名 Mica/MicaLang，发布后更名为 Sericite（发行包与 CLI 为 `sericite`，扩展名 `.sericite`）。本文为历史构建手记，正文保留当时的名字与命令，阅读时将 `mica`/`micalang` 对应为 `sericite` 即可。
+> **更名说明（2026-10-22）**：本文成文于项目名为 Mica 的时期，文中 Mica 即今 Sericite（发行包与 CLI 为 `sericite`，扩展名 `.sericite`）。本文为历史记录，正文保留当时的名字与命令，阅读时将 `mica`/`micalang` 对应为 `sericite` 即可。
 
 这里放三篇文章，记录这个项目在代码之外的部分：它从哪里来，以及它是怎么被写出来的。
 
