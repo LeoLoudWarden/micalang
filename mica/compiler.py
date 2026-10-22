@@ -27,10 +27,13 @@ _ALLOWED_NODES = {
     ast.Expr,
     ast.If,
     ast.While,
+    ast.For,
     ast.Break,
     ast.Continue,
     ast.FunctionDef,
     ast.Return,
+    ast.Raise,
+    ast.Pass,
     ast.Try,
     ast.ExceptHandler,
     ast.Name,
@@ -117,13 +120,38 @@ def compile_source(source: object, filename: str) -> isa.CodeUnit:
             line=exc.lineno,
             column=exc.offset,
         ) from None
-    _validate(tree, filename)
-    compiler = _Compiler(filename)
-    code = isa.CodeUnit(name="<module>", params=[])
-    compiler.compile_body(tree.body, code)
-    compiler.emit(code, isa.LOAD_CONST, None, 0)
-    compiler.emit(code, isa.RETURN, None, 0)
-    _analyze_stack(code, filename)
+    except RecursionError:
+        raise MicaError(
+            "source nesting too deep",
+            kind="validation_error",
+            filename=filename,
+        ) from None
+    except MemoryError:
+        raise MicaError(
+            "source too large to compile",
+            kind="validation_error",
+            filename=filename,
+        ) from None
+    try:
+        _validate(tree, filename)
+        compiler = _Compiler(filename)
+        code = isa.CodeUnit(name="<module>", params=[])
+        compiler.compile_body(tree.body, code)
+        compiler.emit(code, isa.LOAD_CONST, None, 0)
+        compiler.emit(code, isa.RETURN, None, 0)
+        _analyze_stack(code, filename)
+    except RecursionError:
+        raise MicaError(
+            "source nesting too deep",
+            kind="validation_error",
+            filename=filename,
+        ) from None
+    except MemoryError:
+        raise MicaError(
+            "source too large to compile",
+            kind="validation_error",
+            filename=filename,
+        ) from None
     return code
 
 
@@ -131,9 +159,9 @@ _STACK_DELTAS = {
     isa.LOAD_CONST: 1,
     isa.LOAD_NAME: 1,
     isa.DUP: 1,
-    isa.MAKE_FUNCTION: 1,
     isa.STORE_NAME: -1,
     isa.POP: -1,
+    isa.GET_ITER: -1,
     isa.LOAD_INDEX: -1,
     isa.BINARY_OP: -1,
     isa.COMPARE_OP: -1,
@@ -164,13 +192,18 @@ def _analyze_stack(code: isa.CodeUnit, filename: str) -> None:
         elif instr.op in (isa.JUMP_IF_TRUE_KEEP, isa.JUMP_IF_FALSE_KEEP):
             successors.append((instr.arg, depth))
             successors.append((i + 1, depth - 1))
-        elif instr.op == isa.RETURN:
+        elif instr.op == isa.FOR_ITER:
+            successors.append((instr.arg[1], depth))
+            successors.append((i + 1, depth + 1))
+        elif instr.op in (isa.RETURN, isa.RAISE):
             pass
         else:
             if instr.op == isa.BUILD_LIST:
                 delta = 1 - instr.arg
             elif instr.op == isa.BUILD_DICT:
                 delta = 1 - 2 * instr.arg
+            elif instr.op == isa.MAKE_FUNCTION:
+                delta = 1 - instr.arg[1]
             elif instr.op == isa.CALL:
                 delta = -instr.arg
             elif instr.op == isa.CALL_KW:
@@ -249,12 +282,17 @@ def _validate(tree: ast.Module, filename: str) -> None:
         if isinstance(node, ast.FunctionDef):
             if node.name.startswith("__"):
                 _reject(node, filename, "dunder names are not available")
+            if node.name in RESERVED_NAMES:
+                _reject(
+                    node,
+                    filename,
+                    f"builtin '{node.name}' cannot be redefined",
+                )
             if node.decorator_list:
                 _reject(node, filename, "decorators are not supported")
             args = node.args
             if (
-                args.defaults
-                or args.kw_defaults
+                args.kw_defaults
                 or args.vararg
                 or args.kwarg
                 or args.kwonlyargs
@@ -263,8 +301,14 @@ def _validate(tree: ast.Module, filename: str) -> None:
                 _reject(
                     node,
                     filename,
-                    "only plain positional parameters are supported",
+                    "only positional parameters with optional defaults "
+                    "are supported",
                 )
+        if isinstance(node, ast.For):
+            if not isinstance(node.target, ast.Name):
+                _reject(node, filename, "for target must be a name")
+        if isinstance(node, ast.Raise) and node.cause is not None:
+            _reject(node, filename, "raise ... from ... is not supported")
         if isinstance(node, ast.Compare) and len(node.ops) != 1:
             _reject(node, filename, "chained comparisons are not supported")
         if isinstance(node, ast.Assign):
@@ -294,8 +338,20 @@ def _reject(node: ast.AST, filename: str, message: str) -> None:
 class _Compiler:
     def __init__(self, filename: str) -> None:
         self._filename = filename
-        self._loops: list[tuple[int, list[int]]] = []
+        self._loops: list[tuple[int, list[int], int]] = []
+        self._finally_stack: list[list[ast.stmt]] = []
         self._function_depth = 0
+        self._tmp_counter = 0
+
+    def _compile_finally_exits(
+        self, code: isa.CodeUnit, line: int, bodies: list[list[ast.stmt]]
+    ) -> None:
+        for body in reversed(bodies):
+            self._finally_stack.pop()
+            try:
+                self.compile_body(body, code)
+            finally:
+                self._finally_stack.append(body)
 
     def emit(
         self, code: isa.CodeUnit, op: str, arg: object, line: int
@@ -346,47 +402,71 @@ class _Compiler:
             self.compile_expression(node.test, code)
             jump_false = self.emit(code, isa.JUMP_IF_FALSE, None, line)
             breaks: list[int] = []
-            self._loops.append((start, breaks))
+            self._loops.append((start, breaks, len(self._finally_stack)))
             self.compile_body(node.body, code)
             self._loops.pop()
             self.emit(code, isa.JUMP, start, line)
             end = len(code.instrs)
             code.instrs[jump_false].arg = end
+            self.compile_body(node.orelse, code)
+            real_end = len(code.instrs)
             for index in breaks:
-                code.instrs[index].arg = end
-            if node.orelse:
-                raise MicaError(
-                    "while/else is not supported",
-                    kind="validation_error",
-                    filename=self._filename,
-                    line=line,
-                )
+                code.instrs[index].arg = real_end
+            return
+        if isinstance(node, ast.For):
+            self._compile_for(node, code)
             return
         if isinstance(node, ast.Break):
             if not self._loops:
                 self._outside_loop(node)
+            _, breaks, finally_depth = self._loops[-1]
+            self._compile_finally_exits(
+                code, line, self._finally_stack[finally_depth:]
+            )
             index = self.emit(code, isa.JUMP, None, line)
-            self._loops[-1][1].append(index)
+            breaks.append(index)
             return
         if isinstance(node, ast.Continue):
             if not self._loops:
                 self._outside_loop(node)
-            self.emit(code, isa.JUMP, self._loops[-1][0], line)
+            start, _, finally_depth = self._loops[-1]
+            self._compile_finally_exits(
+                code, line, self._finally_stack[finally_depth:]
+            )
+            self.emit(code, isa.JUMP, start, line)
+            return
+        if isinstance(node, ast.Pass):
+            return
+        if isinstance(node, ast.Raise):
+            if node.exc is None:
+                self.emit(code, isa.RAISE, None, line)
+            else:
+                self.compile_expression(node.exc, code)
+                self.emit(code, isa.RAISE, True, line)
             return
         if isinstance(node, ast.FunctionDef):
             params = [argument.arg for argument in node.args.args]
             child = isa.CodeUnit(name=node.name, params=params)
             self._function_depth += 1
             loop_stack, self._loops = self._loops, []
+            finally_stack, self._finally_stack = self._finally_stack, []
             try:
                 self.compile_body(node.body, child)
             finally:
                 self._loops = loop_stack
+                self._finally_stack = finally_stack
                 self._function_depth -= 1
             self.emit(child, isa.LOAD_CONST, None, 0)
             self.emit(child, isa.RETURN, None, 0)
             _analyze_stack(child, self._filename)
-            self.emit(code, isa.MAKE_FUNCTION, child, line)
+            for default in node.args.defaults:
+                self.compile_expression(default, code)
+            self.emit(
+                code,
+                isa.MAKE_FUNCTION,
+                (child, len(node.args.defaults)),
+                line,
+            )
             self.emit(code, isa.STORE_NAME, node.name, line)
             return
         if isinstance(node, ast.Return):
@@ -401,6 +481,9 @@ class _Compiler:
                 self.compile_expression(node.value, code)
             else:
                 self.emit(code, isa.LOAD_CONST, None, line)
+            self._compile_finally_exits(
+                code, line, list(self._finally_stack)
+            )
             self.emit(code, isa.RETURN, None, line)
             return
         if isinstance(node, ast.Try):
@@ -413,27 +496,47 @@ class _Compiler:
             line=line,
         )
 
+    def _compile_for(self, node: ast.For, code: isa.CodeUnit) -> None:
+        line = node.lineno
+        iter_name = f"$for_{self._tmp_counter}"
+        self._tmp_counter += 1
+        self.compile_expression(node.iter, code)
+        self.emit(code, isa.GET_ITER, iter_name, line)
+        start = len(code.instrs)
+        for_iter = self.emit(code, isa.FOR_ITER, (iter_name, None), line)
+        self.emit(code, isa.STORE_NAME, node.target.id, line)
+        breaks: list[int] = []
+        self._loops.append((start, breaks, len(self._finally_stack)))
+        self.compile_body(node.body, code)
+        self._loops.pop()
+        self.emit(code, isa.JUMP, start, line)
+        end = len(code.instrs)
+        code.instrs[for_iter].arg = (iter_name, end)
+        self.compile_body(node.orelse, code)
+        real_end = len(code.instrs)
+        for index in breaks:
+            code.instrs[index].arg = real_end
+
     def _compile_try(self, node: ast.Try, code: isa.CodeUnit) -> None:
         line = node.lineno
-        if node.orelse or node.finalbody:
+        if not node.handlers and not node.finalbody:
             raise MicaError(
-                "try/else and try/finally are not supported",
+                "try requires at least one except or finally clause",
                 kind="validation_error",
                 filename=self._filename,
                 line=line,
             )
-        if not node.handlers:
-            raise MicaError(
-                "try requires at least one except clause",
-                kind="validation_error",
-                filename=self._filename,
-                line=line,
-            )
+        has_finally = bool(node.finalbody)
+        if has_finally:
+            self._finally_stack.append(node.finalbody)
         body_start = len(code.instrs)
         self.compile_body(node.body, code)
         body_end = len(code.instrs)
-        exit_jumps = [self.emit(code, isa.JUMP, None, line)]
-        ranges: list[tuple[int, int, int, tuple[str, ...] | None, str | None]] = []
+        body_exit = self.emit(code, isa.JUMP, None, line)
+        handler_entries: list[
+            tuple[int, int, int, tuple[str, ...] | None, str | None]
+        ] = []
+        handler_exits: list[int] = []
         for handler in node.handlers:
             target = len(code.instrs)
             kinds = (
@@ -441,13 +544,18 @@ class _Compiler:
                 if handler.type is None
                 else (handler.type.id,)  # type: ignore[union-attr]
             )
-            ranges.append((body_start, body_end, target, kinds, handler.name))
+            handler_entries.append(
+                (body_start, body_end, target, kinds, handler.name)
+            )
             self.compile_body(handler.body, code)
-            exit_jumps.append(self.emit(code, isa.JUMP, None, line))
-        end = len(code.instrs)
-        for index in exit_jumps:
-            code.instrs[index].arg = end
-        for start, stop, target, kinds, bind in ranges:
+            handler_exits.append(self.emit(code, isa.JUMP, None, line))
+        else_label = len(code.instrs)
+        code.instrs[body_exit].arg = else_label
+        self.compile_body(node.orelse, code)
+        after_else = len(code.instrs)
+        for index in handler_exits:
+            code.instrs[index].arg = after_else
+        for start, stop, target, kinds, bind in handler_entries:
             code.handlers.append(
                 isa.Handler(
                     start=start,
@@ -457,6 +565,28 @@ class _Compiler:
                     bind=bind,
                 )
             )
+        if not has_finally:
+            return
+        self._finally_stack.pop()
+        self.compile_body(node.finalbody, code)
+        normal_exit = self.emit(code, isa.JUMP, None, line)
+        catch_target = len(code.instrs)
+        error_name = f"$err_{self._tmp_counter}"
+        self._tmp_counter += 1
+        self.compile_body(node.finalbody, code)
+        self.emit(code, isa.RAISE, ("saved", error_name), line)
+        end = len(code.instrs)
+        code.instrs[normal_exit].arg = end
+        code.handlers.append(
+            isa.Handler(
+                start=body_start,
+                end=after_else,
+                target=catch_target,
+                kinds=None,
+                bind=None,
+                error_name=error_name,
+            )
+        )
 
     def compile_expression(self, node: ast.AST, code: isa.CodeUnit) -> None:
         line = getattr(node, "lineno", 0)

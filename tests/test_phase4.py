@@ -199,7 +199,7 @@ class HostFunctionTests(unittest.TestCase):
 
     def test_host_exception_becomes_ffi_error(self):
         def boom():
-            raise ValueError("kaput")
+            raise ValueError("kaput /home/secret")
 
         source = (
             "try:\n"
@@ -208,8 +208,11 @@ class HostFunctionTests(unittest.TestCase):
             '    print("caught: " + e)\n'
         )
         output = run(source, functions={"boom": boom})
-        self.assertIn("kaput", output)
+        # 不含宿主异常消息（防宿主内部信息泄漏），只含异常类型名
+        self.assertIn("ValueError", output)
         self.assertIn("boom", output)
+        self.assertNotIn("kaput", output)
+        self.assertNotIn("/home/secret", output)
 
     def test_host_mica_error_passes_through(self):
         def picky(value):

@@ -139,7 +139,7 @@ class ValidationTests(unittest.TestCase):
 
     def test_unsupported_syntax_rejected(self):
         engine = MicaEngine()
-        for source in ("import os\n", "def f():\n    pass\n", "while True:\n    pass\n"):
+        for source in ("import os\n", "del x\n", "class A:\n    pass\n"):
             with self.assertRaises(MicaError, msg=source):
                 engine.create_root(source)
 

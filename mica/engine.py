@@ -12,6 +12,7 @@ from .vfs import VirtualFileSystem
 
 _TERMINAL_STATES = {"done", "error", "resource_exhausted", "terminated"}
 _UNCATCHABLE_KINDS = {"resource_exhausted", "internal_error"}
+_MAX_SOURCE_BYTES = 4 * 1024 * 1024
 _VM_OPTIONS = {
     "max_instructions",
     "max_output_bytes",
@@ -19,6 +20,10 @@ _VM_OPTIONS = {
     "max_child_vms",
     "max_list_size",
     "max_dict_size",
+    "max_string_bytes",
+    "max_int_bits",
+    "max_total_bytes",
+    "max_total_vms",
     "max_vm_depth",
     "max_fs_files",
     "max_fs_file_bytes",
@@ -33,6 +38,10 @@ class MicaLimits:
     max_child_vms: int = 100
     max_list_size: int = 100_000
     max_dict_size: int = 100_000
+    max_string_bytes: int = 1_048_576
+    max_int_bits: int = 4096
+    max_total_bytes: int = 67_108_864
+    max_total_vms: int = 1000
     max_vm_depth: int = 8
     max_fs_files: int = 1000
     max_fs_file_bytes: int = 1_048_576
@@ -45,14 +54,36 @@ class Frame:
     stack: list[object] = field(default_factory=list)
     locals: dict[str, object] = field(default_factory=dict)
     module_locals: dict[str, object] | None = None
+    active_error: MicaError | None = None
 
 
 class MicaFunction:
-    def __init__(self, code: isa.CodeUnit) -> None:
+    def __init__(self, code: isa.CodeUnit, defaults: tuple[object, ...] = ()) -> None:
         self.code = code
+        self.defaults = defaults
 
     def __repr__(self) -> str:
         return f"<function {self.code.name}>"
+
+
+class _Iterator:
+    __slots__ = ("items", "pos")
+
+    def __init__(self, items: list[object]) -> None:
+        self.items = items
+        self.pos = 0
+
+
+def _make_iterator(value: object) -> _Iterator:
+    if type(value) is list:
+        return _Iterator(value)
+    if type(value) is str:
+        return _Iterator(list(value))
+    if type(value) is dict:
+        return _Iterator(list(value.keys()))
+    raise MicaError(
+        f"'{_type_name(value)}' is not iterable", kind="type_error"
+    )
 
 
 @dataclass(frozen=True)
@@ -79,6 +110,7 @@ class _GrantedMicaFunction:
     name: str
     code: isa.CodeUnit
     module_locals: dict[str, object]
+    defaults: tuple[object, ...] = ()
 
     def __repr__(self) -> str:
         return f"<function {self.name}>"
@@ -98,7 +130,9 @@ class VMContext:
     last_line: int | None = None
     error: MicaError | None = None
     instruction_count: int = 0
+    alloc_bytes: int = 0
     child_count: int = 0
+    running: bool = False
 
     @property
     def filename(self) -> str:
@@ -219,6 +253,16 @@ class MicaEngine:
         granted: dict[str, object] | None = None,
     ) -> VMHandle:
         filename = f"<mica:vm_{self._next_vm_id}>"
+        if len(source.encode("utf-8")) > _MAX_SOURCE_BYTES:
+            raise MicaError(
+                "source too large", kind="validation_error", filename=filename
+            )
+        if len(self._contexts) >= limits.max_total_vms:
+            raise MicaError(
+                "total VM limit exceeded",
+                kind="resource_exhausted",
+                filename=filename,
+            )
         code = compile_source(source, filename)
         vm_id = self._next_vm_id
         self._next_vm_id += 1
@@ -238,6 +282,7 @@ class MicaEngine:
         if not any(instr.stmt_start for instr in code.instrs):
             context.state = "done"
         self._contexts[vm_id] = context
+        self._charge_alloc(context, _const_bytes(code))
         return VMHandle(self, vm_id)
 
     def _context(self, handle: VMHandle) -> VMContext:
@@ -247,37 +292,56 @@ class MicaEngine:
 
     def _run(self, handle: VMHandle) -> str:
         context = self._context(handle)
-        while context.state == "ready":
-            self._step(handle)
+        if context.running:
+            raise MicaError("VM is already running")
+        context.running = True
+        try:
+            while context.state == "ready":
+                if not self._execute_one(context):
+                    break
+        finally:
+            context.running = False
         if context.error is not None:
             raise context.error
         return context.io.stdout()
 
     def _step(self, handle: VMHandle) -> dict[str, object]:
         context = self._context(handle)
+        if context.running:
+            raise MicaError("VM is already running")
         if context.state != "ready":
             return self._snapshot(context)
-        start_depth = len(context.frames)
-        start_line = self._current_instr(context).line
-        executed = False
-        while context.state == "ready":
-            instr = self._current_instr(context)
-            if executed and len(context.frames) <= start_depth and instr.stmt_start:
-                break
-            if not self._execute_one(context):
-                break
-            executed = True
-        if executed and context.state in {"ready", "done"}:
-            context.last_line = start_line
+        context.running = True
+        try:
+            start_depth = len(context.frames)
+            start_line = self._current_instr(context).line
+            executed = False
+            while context.state == "ready":
+                instr = self._current_instr(context)
+                if executed and len(context.frames) <= start_depth and instr.stmt_start:
+                    break
+                if not self._execute_one(context):
+                    break
+                executed = True
+            if executed and context.state in {"ready", "done"}:
+                context.last_line = start_line
+        finally:
+            context.running = False
         return self._snapshot(context)
 
     def _step_instruction(self, handle: VMHandle) -> dict[str, object]:
         context = self._context(handle)
+        if context.running:
+            raise MicaError("VM is already running")
         if context.state != "ready":
             return self._snapshot(context)
-        line = self._current_instr(context).line
-        if self._execute_one(context):
-            context.last_line = line
+        context.running = True
+        try:
+            line = self._current_instr(context).line
+            if self._execute_one(context):
+                context.last_line = line
+        finally:
+            context.running = False
         return self._snapshot(context)
 
     def _current_instr(self, context: VMContext) -> isa.Instr:
@@ -318,6 +382,21 @@ class MicaEngine:
                 return True
             self._fail(context, exc, instr.line)
             return False
+        except RecursionError:
+            self._fail(
+                context,
+                MicaError(
+                    "recursion limit exceeded", kind="resource_exhausted"
+                ),
+                instr.line,
+            )
+            return False
+        except OverflowError:
+            error = MicaError("numeric overflow", kind="conversion_error")
+            if self._handle_exception(context, error):
+                return True
+            self._fail(context, error, instr.line)
+            return False
         except Exception:
             self._fail(
                 context,
@@ -347,6 +426,9 @@ class MicaEngine:
                 context.frames.pop()
                 continue
             del frame.stack[handler.stack_depth :]
+            frame.active_error = error
+            if handler.error_name is not None:
+                frame.locals[handler.error_name] = error
             if handler.bind is not None:
                 frame.locals[handler.bind] = error.message
             frame.pc = handler.target
@@ -373,6 +455,18 @@ class MicaEngine:
         stack = frame.stack
         advance = True
         if op == isa.LOAD_CONST:
+            if type(arg) is int:
+                if arg.bit_length() > context.limits.max_int_bits:
+                    raise MicaError(
+                        "integer size limit exceeded", kind="resource_exhausted"
+                    )
+            elif (
+                type(arg) is str
+                and len(arg) > context.limits.max_string_bytes
+            ):
+                raise MicaError(
+                    "string size limit exceeded", kind="resource_exhausted"
+                )
             stack.append(arg)
         elif op == isa.LOAD_NAME:
             stack.append(self._load_name(context, frame, arg))
@@ -390,6 +484,7 @@ class MicaEngine:
             items = stack[len(stack) - arg :] if arg else []
             if arg:
                 del stack[len(stack) - arg :]
+            self._charge_alloc(context, arg * 8)
             stack.append(list(items))
         elif op == isa.BUILD_DICT:
             if arg > context.limits.max_dict_size:
@@ -408,6 +503,7 @@ class MicaEngine:
                         kind="type_error",
                     )
                 mapping[key] = pairs[position + 1]
+            self._charge_alloc(context, arg * 16)
             stack.append(mapping)
         elif op == isa.LOAD_INDEX:
             index = stack.pop()
@@ -423,11 +519,11 @@ class MicaEngine:
             left = stack.pop()
             stack.append(self._binary_op(context, arg, left, right))
         elif op == isa.UNARY_OP:
-            stack.append(self._unary_op(arg, stack.pop()))
+            stack.append(self._unary_op(context, arg, stack.pop()))
         elif op == isa.COMPARE_OP:
             right = stack.pop()
             left = stack.pop()
-            stack.append(self._compare_op(arg, left, right))
+            stack.append(self._compare_op(context, arg, left, right))
         elif op == isa.JUMP:
             frame.pc = arg
             advance = False
@@ -448,9 +544,45 @@ class MicaEngine:
             else:
                 stack.pop()
         elif op == isa.LOAD_ATTR:
-            stack.append(self._load_attr(stack.pop(), arg))
+            stack.append(self._load_attr(context, stack.pop(), arg))
         elif op == isa.MAKE_FUNCTION:
-            stack.append(MicaFunction(arg))
+            code, defaults_count = arg
+            defaults = (
+                tuple(stack[len(stack) - defaults_count :])
+                if defaults_count
+                else ()
+            )
+            if defaults_count:
+                del stack[len(stack) - defaults_count :]
+            stack.append(MicaFunction(code, defaults))
+        elif op == isa.GET_ITER:
+            iterator = _make_iterator(stack.pop())
+            self._charge_alloc(context, len(iterator.items) * 8)
+            frame.locals[arg] = iterator
+        elif op == isa.FOR_ITER:
+            name, target = arg
+            iterator = frame.locals[name]
+            if iterator.pos >= len(iterator.items):
+                frame.pc = target
+                advance = False
+            else:
+                stack.append(iterator.items[iterator.pos])
+                iterator.pos += 1
+        elif op == isa.RAISE:
+            if isinstance(arg, tuple):
+                raise frame.locals[arg[1]]
+            if arg is None:
+                if frame.active_error is None:
+                    raise MicaError(
+                        "raise without an active error", kind="raise_error"
+                    )
+                raise frame.active_error
+            message = stack.pop()
+            if type(message) is not str:
+                raise MicaError(
+                    "raise expects a string message", kind="type_error"
+                )
+            raise MicaError(message, kind="raise_error")
         elif op == isa.CALL:
             argc, kw_names = arg, ()
             self._call(context, frame, argc, kw_names)
@@ -486,7 +618,9 @@ class MicaEngine:
         kwargs = dict(zip(kw_names, stack[base + argc :]))
         if isinstance(function, MicaFunction):
             code = function.code
-            locals_ = self._bind_arguments(code, args, kwargs)
+            locals_ = self._bind_arguments(
+                code, args, kwargs, function.defaults
+            )
             if len(context.frames) + 1 > context.limits.max_frames:
                 raise MicaError(
                     "call depth limit exceeded", kind="resource_exhausted"
@@ -523,19 +657,32 @@ class MicaEngine:
             except MicaError:
                 raise
             except Exception as exc:
-                message = str(exc)[:200]
                 raise MicaError(
-                    f"host function '{function.name}' failed: {message}",
+                    f"host function '{function.name}' failed with "
+                    f"{type(exc).__name__}",
                     kind="ffi_error",
                 ) from None
-            result = _from_host(raw, budget)
+            result_budget = [
+                context.limits.max_list_size + context.limits.max_dict_size
+            ]
+            result = _from_host(
+                raw, result_budget, context.limits.max_string_bytes
+            )
+            spent = (
+                context.limits.max_list_size
+                + context.limits.max_dict_size
+                - result_budget[0]
+            )
+            self._charge_alloc(context, spent * 8)
             del stack[base - 1 :]
             frame.pc += 1
             stack.append(result)
             return
         if isinstance(function, _GrantedMicaFunction):
             code = function.code
-            locals_ = self._bind_arguments(code, args, kwargs)
+            locals_ = self._bind_arguments(
+                code, args, kwargs, function.defaults
+            )
             if len(context.frames) + 1 > context.limits.max_frames:
                 raise MicaError(
                     "call depth limit exceeded", kind="resource_exhausted"
@@ -557,6 +704,7 @@ class MicaEngine:
         code: isa.CodeUnit,
         args: tuple[object, ...],
         kwargs: dict[str, object],
+        defaults: tuple[object, ...] = (),
     ) -> dict[str, object]:
         params = code.params
         if len(args) > len(params):
@@ -578,6 +726,11 @@ class MicaEngine:
                     kind="arity_error",
                 )
             locals_[key] = value
+        if defaults:
+            default_start = len(params) - len(defaults)
+            for offset, name in enumerate(params[default_start:]):
+                if name not in locals_:
+                    locals_[name] = defaults[offset]
         if len(locals_) != len(params):
             missing = [name for name in params if name not in locals_]
             raise MicaError(
@@ -605,7 +758,7 @@ class MicaEngine:
 
     def _builtin(self, context: VMContext, name: str) -> _NativeFunction | None:
         if name == "input":
-            return _NativeFunction("input", context.io.read_input)
+            return _NativeFunction("input", lambda: self._read_input(context))
         if name == "print":
             return _NativeFunction(
                 "print", lambda *values: self._print(context, values)
@@ -613,21 +766,32 @@ class MicaEngine:
         if name == "len":
             return _NativeFunction("len", self._len)
         if name == "int":
-            return _NativeFunction("int", self._convert_int)
+            return _NativeFunction(
+                "int", lambda value: self._convert_int(context, value)
+            )
         if name == "float":
             return _NativeFunction("float", self._convert_float)
         if name == "str":
-            return _NativeFunction("str", _to_str)
+            return _NativeFunction(
+                "str", lambda value: self._str_builtin(context, value)
+            )
         if name == "range":
             return _NativeFunction(
                 "range", lambda *args: self._range(context, args)
             )
         if name == "keys":
-            return _NativeFunction("keys", self._keys)
+            return _NativeFunction(
+                "keys", lambda value: self._keys(context, value)
+            )
         if name == "read_file":
-            return _NativeFunction("read_file", context.fs.read_file)
+            return _NativeFunction(
+                "read_file", lambda path: self._read_file(context, path)
+            )
         if name == "write_file":
-            return _NativeFunction("write_file", context.fs.write_file)
+            return _NativeFunction(
+                "write_file",
+                lambda path, text: self._write_file(context, path, text),
+            )
         if name == "list_dir":
             return _NativeFunction("list_dir", context.fs.list_dir)
         if name == "path_exists":
@@ -646,6 +810,7 @@ class MicaEngine:
     ) -> VMHandle:
         if not isinstance(source, str):
             raise MicaError("VM source must be a string", kind="type_error")
+        self._charge_work(parent, 1 + len(source) // 64)
         granted = self._validate_child_functions(parent, config.pop("functions", None))
         limits = parent.limits
         if config:
@@ -693,13 +858,13 @@ class MicaEngine:
             _check_grant_name(name)
             if isinstance(value, MicaFunction):
                 granted[name] = _GrantedMicaFunction(
-                    name, value.code, parent.frames[0].locals
+                    name, value.code, parent.frames[0].locals, value.defaults
                 )
             elif isinstance(value, _GrantedHostFunction):
                 granted[name] = _GrantedHostFunction(name, value.callback)
             elif isinstance(value, _GrantedMicaFunction):
                 granted[name] = _GrantedMicaFunction(
-                    name, value.code, value.module_locals
+                    name, value.code, value.module_locals, value.defaults
                 )
             else:
                 raise MicaError(
@@ -709,7 +874,28 @@ class MicaEngine:
         return granted
 
     def _print(self, context: VMContext, values: tuple[object, ...]) -> None:
-        context.io.write_output(" ".join(_to_str(v) for v in values) + "\n")
+        line = " ".join(_to_str(v) for v in values) + "\n"
+        self._charge_work(context, len(line) // 64)
+        context.io.write_output(line)
+
+    def _read_input(self, context: VMContext) -> str:
+        value = context.io.read_input()
+        if len(value) > context.limits.max_string_bytes:
+            raise MicaError(
+                "string size limit exceeded", kind="resource_exhausted"
+            )
+        self._charge_alloc(context, len(value) * 4)
+        return value
+
+    def _read_file(self, context: VMContext, path: object) -> str:
+        text = context.fs.read_file(path)
+        self._charge_alloc(context, len(text) * 4)
+        return text
+
+    def _write_file(self, context: VMContext, path: object, text: object) -> None:
+        if isinstance(text, str):
+            self._charge_alloc(context, len(text) * 4)
+        context.fs.write_file(path, text)
 
     def _len(self, value: object) -> int:
         if isinstance(value, (str, list, dict)):
@@ -719,24 +905,34 @@ class MicaEngine:
             kind="type_error",
         )
 
-    def _keys(self, value: object) -> list[object]:
+    def _keys(self, context: VMContext, value: object) -> list[object]:
         if type(value) is not dict:
             raise MicaError(
                 f"keys() expects a dict, got {_type_name(value)}",
                 kind="type_error",
             )
+        self._charge_alloc(context, len(value) * 8)
         return list(value.keys())
-
-    def _convert_int(self, value: object) -> int:
+    def _convert_int(self, context: VMContext, value: object) -> int:
         if type(value) is bool:
             return int(value)
         if type(value) is int:
-            return value
+            return self._check_int(context, value)
         if type(value) is float:
-            return int(value)
-        if type(value) is str:
             try:
-                return int(value.strip(), 10)
+                return self._check_int(context, int(value))
+            except ValueError:
+                raise MicaError(
+                    "cannot convert nan to int", kind="conversion_error"
+                ) from None
+        if type(value) is str:
+            text = value.strip()
+            if len(text) > context.limits.max_int_bits // 3:
+                raise MicaError(
+                    "integer size limit exceeded", kind="resource_exhausted"
+                )
+            try:
+                return self._check_int(context, int(text, 10))
             except ValueError:
                 raise MicaError(
                     f"cannot convert to int: {value!r}", kind="conversion_error"
@@ -744,6 +940,16 @@ class MicaEngine:
         raise MicaError(
             f"cannot convert {_type_name(value)} to int", kind="type_error"
         )
+
+    def _str_builtin(self, context: VMContext, value: object) -> str:
+        result = _to_str(value)
+        if len(result) > context.limits.max_string_bytes:
+            raise MicaError(
+                "string size limit exceeded", kind="resource_exhausted"
+            )
+        self._charge_alloc(context, len(result) * 4)
+        self._charge_work(context, len(result) // 64)
+        return result
 
     def _convert_float(self, value: object) -> float:
         if type(value) is bool:
@@ -781,6 +987,7 @@ class MicaEngine:
             raise MicaError(
                 "list size limit exceeded", kind="resource_exhausted"
             )
+        self._charge_alloc(context, len(result) * 8)
         return list(result)
 
     def _binary_op(
@@ -788,6 +995,12 @@ class MicaEngine:
     ) -> object:
         if op == "+":
             if type(left) is str and type(right) is str:
+                if len(left) + len(right) > context.limits.max_string_bytes:
+                    raise MicaError(
+                        "string size limit exceeded", kind="resource_exhausted"
+                    )
+                self._charge_alloc(context, (len(left) + len(right)) * 4)
+                self._charge_work(context, (len(left) + len(right)) // 64)
                 return left + right
             if type(left) is list and type(right) is list:
                 result = left + right
@@ -795,13 +1008,17 @@ class MicaEngine:
                     raise MicaError(
                         "list size limit exceeded", kind="resource_exhausted"
                     )
+                self._charge_alloc(context, len(result) * 8)
+                self._charge_work(context, len(result))
                 return result
             if _is_number(left) and _is_number(right):
-                return left + right
+                return self._check_int(context, left + right)
             raise _operand_error(op, left, right)
         if op in ("-", "*"):
             if _is_number(left) and _is_number(right):
-                return left - right if op == "-" else left * right
+                return self._check_int(
+                    context, left - right if op == "-" else left * right
+                )
             raise _operand_error(op, left, right)
         if op in ("/", "//", "%"):
             if _is_number(left) and _is_number(right):
@@ -815,15 +1032,54 @@ class MicaEngine:
                 if op == "/":
                     return left / right
                 if op == "//":
-                    return left // right
-                return left % right
+                    return self._check_int(context, left // right)
+                return self._check_int(context, left % right)
             raise _operand_error(op, left, right)
         raise MicaError(f"unknown operator: {op}", kind="internal_error")
 
-    def _unary_op(self, op: str, value: object) -> object:
+    def _check_int(self, context: VMContext, value: object) -> object:
+        if type(value) is int and value.bit_length() > context.limits.max_int_bits:
+            raise MicaError(
+                "integer size limit exceeded", kind="resource_exhausted"
+            )
+        return value
+
+    def _charge_alloc(self, context: VMContext, amount: int) -> None:
+        """为新创建的对象记账（近似字节数，只增不减），并计入祖先。
+
+        记账沿祖先链累加，链上任意一环超出自己的配额即失败——
+        否则祖先的配额要等到它自己再次分配时才会被检查。
+        """
+        current = context
+        while True:
+            current.alloc_bytes += amount
+            if current.alloc_bytes > current.limits.max_total_bytes:
+                raise MicaError(
+                    "total memory limit exceeded", kind="resource_exhausted"
+                )
+            if current.parent_id is None:
+                break
+            current = self._contexts[current.parent_id]
+
+    def _charge_work(self, context: VMContext, amount: int) -> None:
+        """把大体量操作折算成指令数记账（防 O(n) 操作只计 1 条指令）。"""
+        if amount <= 0:
+            return
+        current = context
+        while True:
+            current.instruction_count += amount
+            if current.instruction_count > current.limits.max_instructions:
+                raise MicaError(
+                    "instruction limit exceeded", kind="resource_exhausted"
+                )
+            if current.parent_id is None:
+                break
+            current = self._contexts[current.parent_id]
+
+    def _unary_op(self, context: VMContext, op: str, value: object) -> object:
         if op == "-":
             if _is_number(value):
-                return -value
+                return self._check_int(context, -value)
             raise MicaError(
                 f"bad operand type for unary '-': {_type_name(value)}",
                 kind="type_error",
@@ -832,12 +1088,17 @@ class MicaEngine:
             return not _truthy(value)
         raise MicaError(f"unknown operator: {op}", kind="internal_error")
 
-    def _compare_op(self, op: str, left: object, right: object) -> bool:
+    def _compare_op(
+        self, context: VMContext, op: str, left: object, right: object
+    ) -> bool:
         if op == "==":
+            self._charge_work(context, _container_size(left))
             return _equals(left, right)
         if op == "!=":
+            self._charge_work(context, _container_size(left))
             return not _equals(left, right)
         if op in ("in", "not in"):
+            self._charge_work(context, _container_size(right))
             result = _contains(right, left)
             return result if op == "in" else not result
         if (_is_number(left) and _is_number(right)) or (
@@ -897,6 +1158,8 @@ class MicaEngine:
                 raise MicaError(
                     "dict size limit exceeded", kind="resource_exhausted"
                 )
+            if index not in target:
+                self._charge_alloc(context, 16)
             target[index] = value
             return
         if type(target) is not list:
@@ -913,13 +1176,35 @@ class MicaEngine:
             raise MicaError("index out of range", kind="index_error")
         target[index] = value
 
-    def _load_attr(self, value: object, attr: object) -> object:
+    def _load_attr(self, context: VMContext, value: object, attr: object) -> object:
         if isinstance(value, VMHandle) and attr in VMHandle._METHODS:
+            if attr in ("snapshot", "stdout", "list_dir", "run"):
+                return _NativeFunction(
+                    f"VM.{attr}",
+                    lambda *a, **k: self._charged_vm_method(
+                        context, value, attr, a, k
+                    ),
+                )
             return _NativeFunction(f"VM.{attr}", getattr(value, attr))
         raise MicaError(
             "attribute access is not available for this value",
             kind="type_error",
         )
+
+    def _charged_vm_method(
+        self,
+        context: VMContext,
+        handle: VMHandle,
+        attr: str,
+        args: tuple[object, ...],
+        kwargs: dict[str, object],
+    ) -> object:
+        result = getattr(handle, attr)(*args, **kwargs)
+        budget = [10_000]
+        size = _estimate_size(result, budget)
+        self._charge_alloc(context, size)
+        self._charge_work(context, size // 64)
+        return result
 
     def _snapshot(self, context: VMContext) -> dict[str, object]:
         next_line = None
@@ -932,6 +1217,7 @@ class MicaEngine:
             locals_ = {
                 name: self._safe_value(value)
                 for name, value in context.frames[-1].locals.items()
+                if not name.startswith("$")
             }
         error = None
         if context.error is not None:
@@ -952,15 +1238,35 @@ class MicaEngine:
             "instruction_count": context.instruction_count,
         }
 
-    def _safe_value(self, value: object) -> object:
+    def _safe_value(
+        self,
+        value: object,
+        _seen: set[int] | None = None,
+        _depth: int = 0,
+    ) -> object:
         if value is None or type(value) in {str, int, float, bool}:
             return value
-        if isinstance(value, list):
-            return [self._safe_value(item) for item in value]
-        if isinstance(value, dict):
-            return {
-                str(key): self._safe_value(item) for key, item in value.items()
-            }
+        if isinstance(value, (list, dict)):
+            if _depth > 64:
+                return "<max depth>"
+            if _seen is None:
+                _seen = set()
+            ident = id(value)
+            if ident in _seen:
+                return "[...]"
+            _seen.add(ident)
+            try:
+                if isinstance(value, list):
+                    return [
+                        self._safe_value(item, _seen, _depth + 1)
+                        for item in value
+                    ]
+                return {
+                    str(key): self._safe_value(item, _seen, _depth + 1)
+                    for key, item in value.items()
+                }
+            finally:
+                _seen.discard(ident)
         if isinstance(value, (VMHandle, MicaFunction)):
             return repr(value)
         if isinstance(value, (_GrantedHostFunction, _GrantedMicaFunction)):
@@ -984,18 +1290,20 @@ def _check_grant_name(name: object) -> None:
         )
 
 
-def _to_host(value: object, budget: list[int]) -> object:
+def _to_host(value: object, budget: list[int], depth: int = 0) -> object:
     """把 mica 值深拷贝为宿主侧纯数据结构；不允许句柄/函数越界。"""
     budget[0] -= 1
     if budget[0] < 0:
         raise MicaError("FFI argument structure too large", kind="ffi_error")
+    if depth > 64:
+        raise MicaError("FFI argument nested too deeply", kind="ffi_error")
     if value is None or type(value) in (str, int, float, bool):
         return value
     if type(value) is list:
-        return [_to_host(item, budget) for item in value]
+        return [_to_host(item, budget, depth + 1) for item in value]
     if type(value) is dict:
         return {
-            _to_host(key, budget): _to_host(item, budget)
+            _to_host(key, budget, depth + 1): _to_host(item, budget, depth + 1)
             for key, item in value.items()
         }
     raise MicaError(
@@ -1004,15 +1312,25 @@ def _to_host(value: object, budget: list[int]) -> object:
     )
 
 
-def _from_host(value: object, budget: list[int]) -> object:
+def _from_host(
+    value: object, budget: list[int], max_string_bytes: int, depth: int = 0
+) -> object:
     """把宿主返回值校验并深拷贝为 mica 值；异物与巨型结构拒绝。"""
     budget[0] -= 1
     if budget[0] < 0:
         raise MicaError("FFI result structure too large", kind="ffi_error")
-    if value is None or type(value) in (str, int, float, bool):
+    if depth > 64:
+        raise MicaError("FFI result nested too deeply", kind="ffi_error")
+    if value is None or type(value) in (int, float, bool):
+        return value
+    if type(value) is str:
+        if len(value) > max_string_bytes:
+            raise MicaError(
+                "FFI result string too large", kind="ffi_error"
+            )
         return value
     if type(value) in (list, tuple):
-        return [_from_host(item, budget) for item in value]
+        return [_from_host(item, budget, max_string_bytes, depth + 1) for item in value]
     if type(value) is dict:
         result: dict[object, object] = {}
         for key, item in value.items():
@@ -1022,13 +1340,48 @@ def _from_host(value: object, budget: list[int]) -> object:
                     f"'{type(key).__name__}'",
                     kind="ffi_error",
                 )
-            result[key] = _from_host(item, budget)
+            result[key] = _from_host(item, budget, max_string_bytes, depth + 1)
         return result
     raise MicaError(
         f"host function returned unsupported type "
         f"'{type(value).__name__}'",
         kind="ffi_error",
     )
+
+
+def _container_size(value: object) -> int:
+    if isinstance(value, (str, list, dict)):
+        return len(value)
+    return 1
+
+
+def _const_bytes(code: isa.CodeUnit) -> int:
+    total = 0
+    for instr in code.instrs:
+        if instr.op == isa.LOAD_CONST and type(instr.arg) is str:
+            total += len(instr.arg) * 4
+        elif instr.op == isa.MAKE_FUNCTION:
+            total += _const_bytes(instr.arg[0])
+    return total
+
+
+def _estimate_size(value: object, budget: list[int]) -> int:
+    """估算一个纯数据结构的近似字节数，节点数封顶防失控。"""
+    if budget[0] <= 0:
+        return 0
+    budget[0] -= 1
+    if type(value) is str:
+        return len(value) * 4
+    if type(value) is list:
+        return len(value) * 8 + sum(
+            _estimate_size(item, budget) for item in value
+        )
+    if type(value) is dict:
+        return len(value) * 16 + sum(
+            _estimate_size(key, budget) + _estimate_size(item, budget)
+            for key, item in value.items()
+        )
+    return 8
 
 
 def _truthy(value: object) -> bool:
@@ -1044,6 +1397,8 @@ def _truthy(value: object) -> bool:
 
 
 def _equals(left: object, right: object) -> bool:
+    if left is right:
+        return True
     if _is_number(left) and _is_number(right):
         return left == right
     if type(left) is not type(right):
@@ -1102,7 +1457,7 @@ def _operand_error(op: str, left: object, right: object) -> MicaError:
     )
 
 
-def _to_str(value: object) -> str:
+def _to_str(value: object, _seen: set[int] | None = None) -> str:
     if value is None:
         return "None"
     if type(value) is bool:
@@ -1111,21 +1466,32 @@ def _to_str(value: object) -> str:
         return value
     if type(value) in (int, float):
         return str(value)
-    if type(value) is list:
-        return "[" + ", ".join(_repr_str(item) for item in value) + "]"
-    if type(value) is dict:
-        return (
-            "{"
-            + ", ".join(
-                f"{_repr_str(key)}: {_repr_str(item)}"
-                for key, item in value.items()
+    if type(value) in (list, dict):
+        if _seen is None:
+            _seen = set()
+        ident = id(value)
+        if ident in _seen:
+            return "[...]" if type(value) is list else "{...}"
+        _seen.add(ident)
+        try:
+            if type(value) is list:
+                return "[" + ", ".join(
+                    _repr_str(item, _seen) for item in value
+                ) + "]"
+            return (
+                "{"
+                + ", ".join(
+                    f"{_repr_str(key, _seen)}: {_repr_str(item, _seen)}"
+                    for key, item in value.items()
+                )
+                + "}"
             )
-            + "}"
-        )
+        finally:
+            _seen.discard(ident)
     return repr(value)
 
 
-def _repr_str(value: object) -> str:
+def _repr_str(value: object, _seen: set[int] | None = None) -> str:
     if type(value) is str:
         return repr(value)
-    return _to_str(value)
+    return _to_str(value, _seen)

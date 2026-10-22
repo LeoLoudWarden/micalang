@@ -20,6 +20,9 @@ JUMP_IF_TRUE_KEEP = "JUMP_IF_TRUE_KEEP"
 JUMP_IF_FALSE_KEEP = "JUMP_IF_FALSE_KEEP"
 LOAD_ATTR = "LOAD_ATTR"
 MAKE_FUNCTION = "MAKE_FUNCTION"
+GET_ITER = "GET_ITER"
+FOR_ITER = "FOR_ITER"
+RAISE = "RAISE"
 CALL = "CALL"
 CALL_KW = "CALL_KW"
 RETURN = "RETURN"
@@ -43,6 +46,7 @@ class Handler:
     kinds: tuple[str, ...] | None
     bind: str | None
     stack_depth: int = 0
+    error_name: str | None = None
 
 
 @dataclass

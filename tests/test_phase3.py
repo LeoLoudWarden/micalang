@@ -113,13 +113,20 @@ class TryExceptTests(unittest.TestCase):
         )
         self.assertIn("parent caught:", run(source))
 
-    def test_finally_rejected(self):
-        engine = MicaEngine()
-        with self.assertRaises(MicaError) as ctx:
-            engine.create_root(
-                "try:\n    x = 1\nexcept:\n    y = 2\nfinally:\n    z = 3\n"
-            )
-        self.assertEqual(ctx.exception.kind, "validation_error")
+    def test_finally_runs_on_both_paths(self):
+        source = (
+            "try:\n"
+            "    x = 1 / 0\n"
+            "except zero_division:\n"
+            '    print("caught")\n'
+            "finally:\n"
+            '    print("cleanup")\n'
+            "try:\n"
+            "    y = 1\n"
+            "finally:\n"
+            '    print("cleanup2")\n'
+        )
+        self.assertEqual(run(source), "caught\ncleanup\ncleanup2\n")
 
 
 class KeywordCallTests(unittest.TestCase):

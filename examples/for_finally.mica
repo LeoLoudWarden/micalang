@@ -1,0 +1,27 @@
+def load_config(path):
+    try:
+        text = read_file(path)
+        return {"ok": True, "text": text}
+    except file_not_found:
+        return {"ok": False, "text": ""}
+    finally:
+        print("load_config finished for", path)
+
+result = load_config("/config.txt")
+if result["ok"]:
+    for line in [result["text"]]:
+        print("content:", line)
+else:
+    print("config missing, using defaults")
+
+total = 0
+for i in range(1, 6):
+    if i == 4:
+        continue
+    total = total + i
+print("sum 1..5 skip 4:", total)
+
+try:
+    raise "demo error"
+except raise_error as e:
+    print("raised:", e)
