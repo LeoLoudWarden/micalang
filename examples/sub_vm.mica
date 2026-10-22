@@ -1,0 +1,9 @@
+vm_code = """
+a = input()
+b = input()
+c = a + b
+print(c)
+"""
+sub_vm = VM(vm_code)
+sub_vm_output = sub_vm.run(["2", "3"])
+print(sub_vm_output)

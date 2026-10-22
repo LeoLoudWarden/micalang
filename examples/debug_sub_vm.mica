@@ -1,0 +1,15 @@
+vm_code = """
+a = input()
+b = input()
+c = a + b
+print(c)
+"""
+sub_vm = VM(vm_code)
+sub_vm.feed_input("2")
+sub_vm.feed_input("3")
+print(sub_vm.step())
+print(sub_vm.step())
+print(sub_vm.step())
+print(sub_vm.step())
+sub_vm_output = sub_vm.stdout()
+print(sub_vm_output)
