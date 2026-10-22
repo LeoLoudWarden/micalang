@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from . import __version__
-from .engine import MicaEngine, MicaError
+from .engine import SericiteEngine, SericiteError
 
 
 def _read_stdin() -> str | None:
@@ -14,28 +14,28 @@ def _read_stdin() -> str | None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="micalang",
-        description="Mica language runtime (Mica-PY reference implementation)",
+        prog="sericite",
+        description="Sericite language runtime (Sericite-PY reference implementation)",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
-    parser.add_argument("source", help="Mica source file")
+    parser.add_argument("source", help="Sericite source file")
     args = parser.parse_args(argv)
     try:
         source = Path(args.source).read_text(encoding="utf-8")
     except OSError as exc:
-        print(f"mica: unable to read source: {exc.strerror or 'I/O error'}", file=sys.stderr)
+        print(f"sericite: unable to read source: {exc.strerror or 'I/O error'}", file=sys.stderr)
         return 1
 
-    engine = MicaEngine()
+    engine = SericiteEngine()
     try:
         root = engine.create_root(source, input_provider=_read_stdin)
-    except MicaError as exc:
+    except SericiteError as exc:
         print(exc, file=sys.stderr)
         return 1
 
     try:
         root.run()
-    except MicaError as exc:
+    except SericiteError as exc:
         sys.stdout.write(root.stdout())
         print(exc, file=sys.stderr)
         return 1
@@ -43,10 +43,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     sys.stdout.write(root.stdout())
     snapshot = root.snapshot()
     if snapshot["state"] == "waiting_input":
-        error = MicaError(
+        error = SericiteError(
             "input required",
             kind="input_error",
-            filename="<mica>",
+            filename="<sericite>",
             line=snapshot["next_line"],
         )
         print(error, file=sys.stderr)

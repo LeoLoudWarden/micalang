@@ -1,5 +1,5 @@
 write_file("/notes/todo.txt", "buy milk")
-write_file("/notes/ideas.txt", "mica vm")
+write_file("/notes/ideas.txt", "sericite vm")
 print(list_dir("/notes"))
 print(read_file("/notes/todo.txt"))
 print(path_exists("/notes"))

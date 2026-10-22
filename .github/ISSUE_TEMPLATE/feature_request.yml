@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        提建议前请先读[设计说明](https://github.com/LeoLoudWarden/micalang/blob/main/docs/design.zh-CN.md)：Mica 的内建能力上限是虚拟文件系统，其余能力走 FFI 授予——"给引擎内建网络/设备能力"类建议与设计边界冲突，直接提大概率不会被采纳。
+        提建议前请先读[设计说明](https://github.com/LeoLoudWarden/sericite/blob/main/docs/design.zh-CN.md)：Sericite 的内建能力上限是虚拟文件系统，其余能力走 FFI 授予——"给引擎内建网络/设备能力"类建议与设计边界冲突，直接提大概率不会被采纳。
         Please read the design notes first: built-in capabilities stop at the virtual filesystem; everything else is granted via FFI.
   - type: textarea
     id: problem

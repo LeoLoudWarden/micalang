@@ -1,4 +1,4 @@
-user = {"name": "mica", "tags": ["vm", "sandbox"], "level": 1}
+user = {"name": "sericite", "tags": ["vm", "sandbox"], "level": 1}
 user["level"] = 2
 
 print("name:", user["name"])

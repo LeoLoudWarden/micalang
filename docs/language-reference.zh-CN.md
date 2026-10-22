@@ -1,6 +1,6 @@
-# Mica 语言参考
+# Sericite 语言参考
 
-Mica 是一门脚本语言，语法是 Python 的子集——写起来就是 Python，但**不是所有 Python 写法都合法**，而且部分语义有自己的规矩。本文自完备：读完即可开写。本文描述 Mica 0.1.0 的语言行为。
+Sericite 是一门脚本语言，语法是 Python 的子集——写起来就是 Python，但**不是所有 Python 写法都合法**，而且部分语义有自己的规矩。本文自完备：读完即可开写。本文描述 Sericite 0.1.0 的语言行为。
 
 ## 1. 基本样子
 
@@ -112,7 +112,7 @@ raise                        # 在 except 块内裸 raise：重新抛出当前�
 
 ## 7. 创建虚拟机（VM）
 
-在 mica 里可以创建新的 VM，VM 内跑的代码语法也还是 mica：
+在 sericite 里可以创建新的 VM，VM 内跑的代码语法也还是 sericite：
 
 ```python
 sub = VM("print('hi')")          # 源码字符串

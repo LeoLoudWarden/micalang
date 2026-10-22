@@ -1,6 +1,6 @@
-# Mica Language Reference
+# Sericite Language Reference
 
-Mica is a scripting language whose syntax is a subset of Python — it reads like Python, but **not every Python construct is legal**, and some semantics have their own rules. This document is self-contained: read it and you can start writing. It describes the language behavior of Mica 0.1.0.
+Sericite is a scripting language whose syntax is a subset of Python — it reads like Python, but **not every Python construct is legal**, and some semantics have their own rules. This document is self-contained: read it and you can start writing. It describes the language behavior of Sericite 0.1.0.
 
 ## 1. What it looks like
 
@@ -112,7 +112,7 @@ Common error kinds: `type_error`, `name_error`, `index_error`, `key_error`, `zer
 
 ## 7. Creating VMs
 
-Mica code can create new VMs, and the code inside a VM is also mica:
+Sericite code can create new VMs, and the code inside a VM is also sericite:
 
 ```python
 sub = VM("print('hi')")          # source code string

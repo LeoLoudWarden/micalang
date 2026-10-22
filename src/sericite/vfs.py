@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from .errors import MicaError
+from .errors import SericiteError
 
 
 def normalize_path(path: object) -> str:
     if not isinstance(path, str):
-        raise MicaError("path must be a string", kind="type_error")
+        raise SericiteError("path must be a string", kind="type_error")
     parts: list[str] = []
     for segment in path.split("/"):
         if segment in ("", "."):
@@ -35,22 +35,22 @@ class VirtualFileSystem:
         if normalized in self._files:
             return self._files[normalized]
         if self._is_dir(normalized):
-            raise MicaError(f"is a directory: {path}", kind="is_directory")
-        raise MicaError(f"no such file: {path}", kind="file_not_found")
+            raise SericiteError(f"is a directory: {path}", kind="is_directory")
+        raise SericiteError(f"no such file: {path}", kind="file_not_found")
 
     def write_file(self, path: object, text: object) -> None:
         normalized = normalize_path(path)
         if not isinstance(text, str):
-            raise MicaError("file content must be a string", kind="type_error")
+            raise SericiteError("file content must be a string", kind="type_error")
         if normalized == "/" or self._is_dir(normalized):
-            raise MicaError(f"is a directory: {path}", kind="is_directory")
+            raise SericiteError(f"is a directory: {path}", kind="is_directory")
         size = len(text.encode("utf-8"))
         if size > self._max_file_bytes:
-            raise MicaError(
+            raise SericiteError(
                 "file size limit exceeded", kind="resource_exhausted"
             )
         if normalized not in self._files and len(self._files) >= self._max_files:
-            raise MicaError(
+            raise SericiteError(
                 "file count limit exceeded", kind="resource_exhausted"
             )
         self._files[normalized] = text
@@ -58,9 +58,9 @@ class VirtualFileSystem:
     def list_dir(self, path: object) -> list[str]:
         normalized = normalize_path(path)
         if normalized in self._files:
-            raise MicaError(f"not a directory: {path}", kind="not_directory")
+            raise SericiteError(f"not a directory: {path}", kind="not_directory")
         if normalized != "/" and not self._is_dir(normalized):
-            raise MicaError(f"no such directory: {path}", kind="file_not_found")
+            raise SericiteError(f"no such directory: {path}", kind="file_not_found")
         prefix = normalized.rstrip("/") + "/"
         names = {
             file[len(prefix):].split("/", 1)[0]

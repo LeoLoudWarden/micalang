@@ -1,6 +1,6 @@
-# Mica Security Model
+# Sericite Security Model
 
-This document describes Mica's threat model: what the engine guarantees, what it does not, known limitations, and how to report security issues. **If you plan to run untrusted code with Mica, read this document first.**
+This document describes Sericite's threat model: what the engine guarantees, what it does not, known limitations, and how to report security issues. **If you plan to run untrusted code with Sericite, read this document first.**
 
 ## 1. Threat model
 
@@ -27,14 +27,14 @@ Isolation holds on the premise of a single execution path: all VMs are driven by
 
 Each of the following matters equally; evaluate them before use:
 
-1. **The current engine is implemented in Python and runs in the host's process.** Implementation flaws in the engine or CPython itself could, in theory, break isolation. Mica has not been through a formal external security audit; before 0.1.0 it only received internal and third-party adversarial review (section 4). **Against truly adversarial code, do not treat Mica as your only isolation boundary** — production deployments should add an OS-level layer (separate process, container, etc.) around Mica; Mica's job is language-level behavioral constraint and resource governance.
+1. **The current engine is implemented in Python and runs in the host's process.** Implementation flaws in the engine or CPython itself could, in theory, break isolation. Sericite has not been through a formal external security audit; before 0.1.0 it only received internal and third-party adversarial review (section 4). **Against truly adversarial code, do not treat Sericite as your only isolation boundary** — production deployments should add an OS-level layer (separate process, container, etc.) around Sericite; Sericite's job is language-level behavioral constraint and resource governance.
 2. **Host function execution time and memory are not metered.** FFI functions are trusted code; their CPU/memory cost is the host's own discipline. A malicious or runaway host function is outside quota coverage.
 3. **The cost model is approximate.** Memory accounting uses approximate byte counts and only ever increases (high-water mark); O(n) operations are charged to the instruction count at a discounted rate. It defends against *unbounded growth*, not exact measurement.
 4. **Default quotas are not safe values.** Defaults target development and debugging; tighten them explicitly when running untrusted code.
 
 ## 4. Review so far
 
-Before 0.1.0 the prototype went through one round of adversarial security review (independent internal audit plus a third-party perspective), with the scenario set as "an LLM produces arbitrary malicious code executed via `mica_exec`". Coverage: isolation escape (whitelist / dunder / attribute access), denial of service (unbounded resource growth, snapshot amplification, compounding via tree-shaped child-VM creation), information leak (FFI messages, error views, snapshot contents), compile-time attacks (recursion stack overflow, oversized source). All findings were fixed and pinned with regression tests.
+Before 0.1.0 the prototype went through one round of adversarial security review (independent internal audit plus a third-party perspective), with the scenario set as "an LLM produces arbitrary malicious code executed via `sericite_exec`". Coverage: isolation escape (whitelist / dunder / attribute access), denial of service (unbounded resource growth, snapshot amplification, compounding via tree-shaped child-VM creation), information leak (FFI messages, error views, snapshot contents), compile-time attacks (recursion stack overflow, oversized source). All findings were fixed and pinned with regression tests.
 
 For responsible disclosure, concrete attack payloads are not listed in public documents. If you need to evaluate whether a class of attack is covered, open an issue or ask privately (next section).
 
@@ -57,4 +57,4 @@ Please use GitHub's private vulnerability reporting (repository page → Securit
 
 - When running untrusted code, set quotas explicitly at every VM layer; do not rely on defaults.
 - Grant only the capabilities a script actually needs; validate inputs and bound resources inside the functions you grant.
-- Treat Mica as the language layer of a defense-in-depth setup, not the only boundary.
+- Treat Sericite as the language layer of a defense-in-depth setup, not the only boundary.

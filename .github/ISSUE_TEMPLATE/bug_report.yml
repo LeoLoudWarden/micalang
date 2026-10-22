@@ -19,7 +19,7 @@ body:
     id: repro
     attributes:
       label: 复现 / Reproduction
-      description: 最小复现：一段 mica 代码或一段 Python 调用代码，以及运行命令。Minimal reproduction, please.
+      description: 最小复现：一段 sericite 代码或一段 Python 调用代码，以及运行命令。Minimal reproduction, please.
       placeholder: |
         sub = VM("print('hi')")
         print(sub.run())
@@ -42,7 +42,7 @@ body:
     id: version
     attributes:
       label: 版本 / Version
-      description: micalang 版本（`micalang --version`）与 Python 版本。
-      placeholder: "micalang 0.1.0, Python 3.12"
+      description: sericite 版本（`sericite --version`）与 Python 版本。
+      placeholder: "sericite 0.2.0, Python 3.12"
     validations:
       required: true

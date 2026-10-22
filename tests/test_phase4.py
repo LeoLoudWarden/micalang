@@ -1,10 +1,10 @@
 import unittest
 
-from mica import MicaEngine, MicaError, MicaLimits
+from sericite import SericiteEngine, SericiteError, SericiteLimits
 
 
 def run(source, inputs=None, limits=None, functions=None):
-    engine = MicaEngine(limits=limits)
+    engine = SericiteEngine(limits=limits)
     vm = engine.create_root(source, functions=functions)
     return vm.run(inputs)
 
@@ -36,16 +36,16 @@ class DictTests(unittest.TestCase):
 
     def test_unhashable_key_rejected(self):
         source = "d = {}\nd[[1]] = 2\n"
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root(source)
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "type_error")
 
     def test_literal_unhashable_key_rejected(self):
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root("d = {[1]: 2}\n")
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "type_error")
 
@@ -77,9 +77,9 @@ class DictTests(unittest.TestCase):
         )
 
     def test_keys_rejects_non_dict(self):
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root("print(keys([1]))\n")
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "type_error")
 
@@ -92,25 +92,25 @@ class DictTests(unittest.TestCase):
         self.assertEqual(run(source), "True False\nTrue True\nTrue True\n")
 
     def test_in_rejects_bad_operands(self):
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root("print(1 in 2)\n")
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "type_error")
 
     def test_dict_size_limit_on_store(self):
-        limits = MicaLimits(max_dict_size=2)
-        engine = MicaEngine(limits=limits)
+        limits = SericiteLimits(max_dict_size=2)
+        engine = SericiteEngine(limits=limits)
         vm = engine.create_root('d = {}\nd["a"] = 1\nd["b"] = 2\nd["c"] = 3\n')
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "resource_exhausted")
 
     def test_dict_size_limit_on_literal(self):
-        limits = MicaLimits(max_dict_size=1)
-        engine = MicaEngine(limits=limits)
+        limits = SericiteLimits(max_dict_size=1)
+        engine = SericiteEngine(limits=limits)
         vm = engine.create_root('d = {"a": 1, "b": 2}\n')
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "resource_exhausted")
 
@@ -120,9 +120,9 @@ class DictTests(unittest.TestCase):
             "max_dict_size=1)\n"
             "sub.run()\n"
         )
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root(source)
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "resource_exhausted")
 
@@ -214,9 +214,9 @@ class HostFunctionTests(unittest.TestCase):
         self.assertNotIn("kaput", output)
         self.assertNotIn("/home/secret", output)
 
-    def test_host_mica_error_passes_through(self):
+    def test_host_sericite_error_passes_through(self):
         def picky(value):
-            raise MicaError("host says no", kind="file_not_found")
+            raise SericiteError("host says no", kind="file_not_found")
 
         source = (
             "try:\n"
@@ -227,37 +227,37 @@ class HostFunctionTests(unittest.TestCase):
         self.assertEqual(run(source, functions={"picky": picky}), "precise kind\n")
 
     def test_grant_name_conflicts_with_builtin(self):
-        engine = MicaEngine()
-        with self.assertRaises(MicaError) as ctx:
+        engine = SericiteEngine()
+        with self.assertRaises(SericiteError) as ctx:
             engine.create_root("print(1)\n", functions={"len": lambda x: 0})
         self.assertEqual(ctx.exception.kind, "type_error")
 
     def test_grant_name_must_be_identifier(self):
-        engine = MicaEngine()
-        with self.assertRaises(MicaError) as ctx:
+        engine = SericiteEngine()
+        with self.assertRaises(SericiteError) as ctx:
             engine.create_root("print(1)\n", functions={"not a name": lambda: 0})
         self.assertEqual(ctx.exception.kind, "type_error")
 
     def test_grant_must_be_callable(self):
-        engine = MicaEngine()
-        with self.assertRaises(MicaError) as ctx:
+        engine = SericiteEngine()
+        with self.assertRaises(SericiteError) as ctx:
             engine.create_root("print(1)\n", functions={"f": 42})
         self.assertEqual(ctx.exception.kind, "type_error")
 
     def test_granted_function_respects_output_quota(self):
-        limits = MicaLimits(max_output_bytes=4)
-        engine = MicaEngine(limits=limits)
+        limits = SericiteLimits(max_output_bytes=4)
+        engine = SericiteEngine(limits=limits)
         vm = engine.create_root(
             'print(shout("hello world"))\n',
             functions={"shout": lambda text: text.upper()},
         )
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "resource_exhausted")
 
 
 class ChildGrantTests(unittest.TestCase):
-    def test_parent_grants_mica_function(self):
+    def test_parent_grants_sericite_function(self):
         source = (
             "def double(x):\n"
             "    return x * 2\n"
@@ -324,17 +324,17 @@ class ChildGrantTests(unittest.TestCase):
 
     def test_functions_option_must_be_dict(self):
         source = 'sub = VM("", functions=[1, 2])\n'
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root(source)
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "type_error")
 
     def test_functions_option_rejects_non_function(self):
         source = 'sub = VM("", functions={"f": 42})\n'
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root(source)
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "type_error")
 
@@ -349,14 +349,14 @@ class ChildGrantTests(unittest.TestCase):
             'functions={"spin": spin}, max_instructions=200)\n'
             "sub.run()\n"
         )
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root(source)
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "resource_exhausted")
 
-    def test_granted_mica_function_step_debuggable(self):
-        engine = MicaEngine()
+    def test_granted_sericite_function_step_debuggable(self):
+        engine = SericiteEngine()
         vm = engine.create_root(
             "def f(x):\n"
             "    return x + 1\n"

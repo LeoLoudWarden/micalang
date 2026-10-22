@@ -1,10 +1,10 @@
 import unittest
 
-from mica import MicaEngine, MicaError, MicaLimits
+from sericite import SericiteEngine, SericiteError, SericiteLimits
 
 
 def run(source, inputs=None, limits=None, functions=None):
-    engine = MicaEngine(limits=limits)
+    engine = SericiteEngine(limits=limits)
     vm = engine.create_root(source, functions=functions)
     return vm.run(inputs)
 
@@ -18,44 +18,44 @@ class SecurityQuotaTests(unittest.TestCase):
             "    s = s + s\n"
             "    i = i + 1\n"
         )
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             run(source)
         self.assertEqual(ctx.exception.kind, "resource_exhausted")
 
     def test_str_builtin_size_limit(self):
-        limits = MicaLimits(max_string_bytes=100)
-        engine = MicaEngine(limits=limits)
+        limits = SericiteLimits(max_string_bytes=100)
+        engine = SericiteEngine(limits=limits)
         vm = engine.create_root("x = str(range(50))\n")
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "resource_exhausted")
 
     def test_int_growth_limit(self):
         source = "x = 2\ni = 0\nwhile i < 20:\n    x = x * x\n    i = i + 1\n"
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             run(source)
         self.assertEqual(ctx.exception.kind, "resource_exhausted")
 
     def test_int_constant_limit(self):
-        limits = MicaLimits(max_int_bits=32)
-        engine = MicaEngine(limits=limits)
+        limits = SericiteLimits(max_int_bits=32)
+        engine = SericiteEngine(limits=limits)
         vm = engine.create_root("x = 99999999999\n")
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "resource_exhausted")
 
     def test_int_conversion_limit(self):
-        limits = MicaLimits(max_int_bits=32)
-        engine = MicaEngine(limits=limits)
+        limits = SericiteLimits(max_int_bits=32)
+        engine = SericiteEngine(limits=limits)
         vm = engine.create_root('x = int("99999999999")\n')
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "resource_exhausted")
 
     def test_deep_expression_is_validation_error(self):
         source = "x = " + "1+1" * 5000 + "\n"
-        engine = MicaEngine()
-        with self.assertRaises(MicaError) as ctx:
+        engine = SericiteEngine()
+        with self.assertRaises(SericiteError) as ctx:
             engine.create_root(source)
         self.assertEqual(ctx.exception.kind, "validation_error")
 
@@ -64,7 +64,7 @@ class SecurityQuotaTests(unittest.TestCase):
         self.assertEqual(run(source), "[[...]]\nTrue\n")
 
     def test_cyclic_list_snapshot_safe(self):
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root("l = [None]\nl[0] = l\nx = 1\n")
         vm.run()
         snapshot = vm.snapshot()
@@ -72,7 +72,7 @@ class SecurityQuotaTests(unittest.TestCase):
 
     def test_cyclic_foreign_equality_contained(self):
         source = "a = [None]\na[0] = a\nb = [None]\nb[0] = b\nprint(a == b)\n"
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             run(source)
         self.assertEqual(ctx.exception.kind, "resource_exhausted")
 
@@ -82,7 +82,7 @@ class SecurityQuotaTests(unittest.TestCase):
             value = [value]
         nested_repr = "[" * 100 + "1" + "]" * 100
         source = f"probe({nested_repr})\n"
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             run(source, functions={"probe": lambda v: None})
         self.assertEqual(ctx.exception.kind, "ffi_error")
 
@@ -105,7 +105,7 @@ class SecurityQuotaTests(unittest.TestCase):
             "    i = i + 1\n"
             "print(1)\n"
         )
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root(source)
         self.assertEqual(vm.run(), "1\n")
         snapshot = vm.snapshot()
@@ -113,14 +113,14 @@ class SecurityQuotaTests(unittest.TestCase):
 
     def test_parse_level_deep_chain_is_validation_error(self):
         source = "x = " + "1+" * 50000 + "1\n"
-        engine = MicaEngine()
-        with self.assertRaises(MicaError) as ctx:
+        engine = SericiteEngine()
+        with self.assertRaises(SericiteError) as ctx:
             engine.create_root(source)
         self.assertEqual(ctx.exception.kind, "validation_error")
 
     def test_total_memory_accounting(self):
-        limits = MicaLimits(max_total_bytes=200_000)
-        engine = MicaEngine(limits=limits)
+        limits = SericiteLimits(max_total_bytes=200_000)
+        engine = SericiteEngine(limits=limits)
         source = (
             'pad = "a"\n'
             "i = 0\n"
@@ -134,12 +134,12 @@ class SecurityQuotaTests(unittest.TestCase):
             "    j = j + 1\n"
         )
         vm = engine.create_root(source)
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "resource_exhausted")
 
     def test_overflow_becomes_catchable_conversion_error(self):
-        limits = MicaLimits(max_int_bits=10000)
+        limits = SericiteLimits(max_int_bits=10000)
         source = (
             "x = 2\n"
             "for i in range(13):\n"
@@ -149,22 +149,22 @@ class SecurityQuotaTests(unittest.TestCase):
             "except conversion_error:\n"
             '    print("overflow caught")\n'
         )
-        engine = MicaEngine(limits=limits)
+        engine = SericiteEngine(limits=limits)
         self.assertEqual(
             engine.create_root(source).run(), "overflow caught\n"
         )
 
     def test_input_length_limited(self):
-        limits = MicaLimits(max_string_bytes=10)
-        engine = MicaEngine(limits=limits)
+        limits = SericiteLimits(max_string_bytes=10)
+        engine = SericiteEngine(limits=limits)
         vm = engine.create_root("x = input()\n", inputs=["x" * 100])
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "resource_exhausted")
 
     def test_source_length_limited(self):
-        engine = MicaEngine()
-        with self.assertRaises(MicaError) as ctx:
+        engine = SericiteEngine()
+        with self.assertRaises(SericiteError) as ctx:
             engine.create_root("x = 1\n" + "# pad\n" * 800_000)
         self.assertEqual(ctx.exception.kind, "validation_error")
 
@@ -174,10 +174,10 @@ class SecurityQuotaTests(unittest.TestCase):
             "sub = VM(" + repr(child) + ", max_total_bytes=10_000_000)\n"
             "sub.run()\n"
         )
-        limits = MicaLimits(max_total_bytes=100_000)
-        engine = MicaEngine(limits=limits)
+        limits = SericiteLimits(max_total_bytes=100_000)
+        engine = SericiteEngine(limits=limits)
         vm = engine.create_root(source)
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "resource_exhausted")
 
@@ -237,15 +237,15 @@ class ForLoopTests(unittest.TestCase):
         self.assertEqual(run(source), "11\n21\n12\n22\n")
 
     def test_for_not_iterable(self):
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root("for x in 5:\n    print(x)\n")
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "type_error")
 
     def test_for_tuple_target_rejected(self):
-        engine = MicaEngine()
-        with self.assertRaises(MicaError) as ctx:
+        engine = SericiteEngine()
+        with self.assertRaises(SericiteError) as ctx:
             engine.create_root("for a, b in [1]:\n    pass\n")
         self.assertEqual(ctx.exception.kind, "validation_error")
 
@@ -270,7 +270,7 @@ class ForLoopTests(unittest.TestCase):
         self.assertEqual(run(source), "after\n")
 
     def test_snapshot_hides_for_internals(self):
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root("for x in [1]:\n    y = x\n")
         vm.step()
         vm.step()
@@ -320,11 +320,11 @@ class FinallyTests(unittest.TestCase):
         self.assertEqual(run(source), "0\n1\n2\n3\n")
 
     def test_finally_reraises_original_kind(self):
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root(
             "try:\n    x = missing\nfinally:\n    y = 1\n"
         )
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "name_error")
 
@@ -342,7 +342,7 @@ class FinallyTests(unittest.TestCase):
         self.assertEqual(run(source), "no error\nf\n")
 
     def test_nested_finally_order(self):
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root(
             "try:\n"
             "    try:\n"
@@ -352,7 +352,7 @@ class FinallyTests(unittest.TestCase):
             "finally:\n"
             '    print("outer")\n'
         )
-        with self.assertRaises(MicaError):
+        with self.assertRaises(SericiteError):
             vm.run()
         self.assertEqual(vm.stdout(), "inner\nouter\n")
 
@@ -380,16 +380,16 @@ class RaiseTests(unittest.TestCase):
         self.assertEqual(run(source), "got: inner\n")
 
     def test_raise_non_string_rejected(self):
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root("raise 42\n")
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "type_error")
 
     def test_bare_raise_without_active_error(self):
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root("raise\n")
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "raise_error")
 
@@ -418,9 +418,9 @@ class DefaultParamTests(unittest.TestCase):
         self.assertEqual(run(source), "123\n153\n159\n127\n")
 
     def test_missing_required_still_arity_error(self):
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root("def f(a, b=2):\n    return a\nprint(f())\n")
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "arity_error")
 
@@ -496,7 +496,7 @@ class ExternalAuditTests(unittest.TestCase):
             "    if 99999 in big:\n"
             "        pass\n"
         )
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             run(source)
         self.assertEqual(ctx.exception.kind, "resource_exhausted")
 
@@ -508,49 +508,49 @@ class ExternalAuditTests(unittest.TestCase):
             "    if a == b:\n"
             "        pass\n"
         )
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             run(source)
         self.assertEqual(ctx.exception.kind, "resource_exhausted")
 
     def test_compile_work_charged_to_parent(self):
         big_source = "x = 1\n" * 100000
         source = "sub = VM(" + repr(big_source) + ")\n"
-        limits = MicaLimits(max_instructions=100)
-        engine = MicaEngine(limits=limits)
+        limits = SericiteLimits(max_instructions=100)
+        engine = SericiteEngine(limits=limits)
         vm = engine.create_root(source)
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "resource_exhausted")
 
     def test_total_vms_limit(self):
-        limits = MicaLimits(max_total_vms=3)
-        engine = MicaEngine(limits=limits)
+        limits = SericiteLimits(max_total_vms=3)
+        engine = SericiteEngine(limits=limits)
         source = "for i in range(10):\n    sub = VM(\"x = 1\\n\")\n"
         vm = engine.create_root(source)
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "resource_exhausted")
 
     def test_vfs_write_charges_alloc(self):
-        limits = MicaLimits(max_total_bytes=1000)
-        engine = MicaEngine(limits=limits)
+        limits = SericiteLimits(max_total_bytes=1000)
+        engine = SericiteEngine(limits=limits)
         text = "x" * 200
         vm = engine.create_root(f'write_file("/a.txt", "{text}")\n')
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "resource_exhausted")
 
     def test_string_constant_size_checked(self):
-        limits = MicaLimits(max_string_bytes=10)
-        engine = MicaEngine(limits=limits)
+        limits = SericiteLimits(max_string_bytes=10)
+        engine = SericiteEngine(limits=limits)
         vm = engine.create_root('x = "this string is way too long"\n')
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "resource_exhausted")
 
     def test_stdout_method_charges_caller(self):
-        limits = MicaLimits(max_total_bytes=1000)
-        engine = MicaEngine(limits=limits)
+        limits = SericiteLimits(max_total_bytes=1000)
+        engine = SericiteEngine(limits=limits)
         source = (
             'sub = VM("print(123)")\n'
             "sub.run()\n"
@@ -560,13 +560,13 @@ class ExternalAuditTests(unittest.TestCase):
             "    i = i + 1\n"
         )
         vm = engine.create_root(source)
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "resource_exhausted")
 
     def test_for_over_string_charges_alloc(self):
-        limits = MicaLimits(max_total_bytes=10_000)
-        engine = MicaEngine(limits=limits)
+        limits = SericiteLimits(max_total_bytes=10_000)
+        engine = SericiteEngine(limits=limits)
         source = (
             's = "x"\n'
             "for i in range(10):\n"
@@ -575,7 +575,7 @@ class ExternalAuditTests(unittest.TestCase):
             "    pass\n"
         )
         vm = engine.create_root(source)
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "resource_exhausted")
 
@@ -589,7 +589,7 @@ class ExternalAuditTests(unittest.TestCase):
         self.assertEqual(run(source), "caught\n")
 
     def test_reentrancy_guard(self):
-        engine = MicaEngine()
+        engine = SericiteEngine()
         holder = {}
 
         def provider():
@@ -598,19 +598,19 @@ class ExternalAuditTests(unittest.TestCase):
 
         vm = engine.create_root("x = input()\n", input_provider=provider)
         holder["vm"] = vm
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertIn("already running", str(ctx.exception))
 
     def test_def_cannot_shadow_builtin(self):
-        engine = MicaEngine()
-        with self.assertRaises(MicaError) as ctx:
+        engine = SericiteEngine()
+        with self.assertRaises(SericiteError) as ctx:
             engine.create_root("def print():\n    pass\n")
         self.assertEqual(ctx.exception.kind, "validation_error")
 
     def test_multibyte_source_measured_in_bytes(self):
-        engine = MicaEngine()
-        with self.assertRaises(MicaError) as ctx:
+        engine = SericiteEngine()
+        with self.assertRaises(SericiteError) as ctx:
             engine.create_root("x = 1\n" + "# 汉\n" * 1_500_000)
         self.assertEqual(ctx.exception.kind, "validation_error")
 

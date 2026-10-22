@@ -6,7 +6,7 @@ def endpoint(path):
     return base_url + "/" + path
 
 def fake_http_get(url):
-    # 真实场景里这是宿主注入的网络函数；这里用 mica 函数模拟结构化返回
+    # 真实场景里这是宿主注入的网络函数；这里用 sericite 函数模拟结构化返回
     return {"status": 200, "url": url, "body": "payload of " + url}
 
 child_source = """

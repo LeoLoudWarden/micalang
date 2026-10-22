@@ -1,6 +1,6 @@
 import unittest
 
-from mica import MicaEngine, MicaError
+from sericite import SericiteEngine, SericiteError
 
 ADD_PROGRAM = """\
 a = input()
@@ -24,14 +24,14 @@ print(sub_output)
 
 class RootVMTests(unittest.TestCase):
     def test_run(self):
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root(ADD_PROGRAM)
         output = vm.run(["2", "3"])
         self.assertEqual(output, "23\n")
         self.assertEqual(vm.snapshot()["state"], "done")
 
     def test_step_by_step(self):
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root(ADD_PROGRAM, inputs=["2", "3"])
 
         snap = vm.step()
@@ -54,7 +54,7 @@ class RootVMTests(unittest.TestCase):
         self.assertEqual(snap["state"], "done")
 
     def test_waiting_input_and_resume(self):
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root(ADD_PROGRAM)
 
         snap = vm.step()
@@ -71,7 +71,7 @@ class RootVMTests(unittest.TestCase):
         self.assertEqual(output, "23\n")
 
     def test_empty_program_is_done(self):
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root("")
         self.assertEqual(vm.snapshot()["state"], "done")
         self.assertEqual(vm.run(), "")
@@ -79,13 +79,13 @@ class RootVMTests(unittest.TestCase):
 
 class SubVMTests(unittest.TestCase):
     def test_sub_vm_io_isolated(self):
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root(SUB_VM_PROGRAM)
         output = vm.run()
         self.assertEqual(output, "23\n\n")
 
     def test_handle_repr_shows_id_and_state(self):
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root(SUB_VM_PROGRAM)
         vm.step()
         vm.step()
@@ -95,12 +95,12 @@ class SubVMTests(unittest.TestCase):
 
     def test_nested_vm_creation(self):
         mid_src = 'inner = VM("print(\'deep\')")\nprint(inner.run())\n'
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root(f"sub = VM({mid_src!r})\nprint(sub.run())\n")
         self.assertEqual(vm.run(), "deep\n\n\n")
 
     def test_debug_sub_vm_from_root(self):
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root(
             'sub = VM("a = input()\\nprint(a)")\n'
             "first = sub.step()\n"
@@ -114,13 +114,13 @@ class SubVMTests(unittest.TestCase):
 
     def test_layer1_can_create_vm(self):
         mid_src = 'inner = VM("x = 1")\nprint(inner.snapshot())\n'
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root(f"sub = VM({mid_src!r})\nprint(sub.run())\n")
         output = vm.run()
         self.assertIn("'state': 'ready'", output)
 
     def test_child_vm_stdout_does_not_leak_to_parent(self):
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root(
             'sub = VM("print(\\"inner\\")")\n'
             "sub.run()\n"
@@ -132,49 +132,49 @@ class SubVMTests(unittest.TestCase):
 
 class ValidationTests(unittest.TestCase):
     def test_syntax_error(self):
-        engine = MicaEngine()
-        with self.assertRaises(MicaError) as ctx:
+        engine = SericiteEngine()
+        with self.assertRaises(SericiteError) as ctx:
             engine.create_root("a = = 1\n")
         self.assertEqual(ctx.exception.kind, "syntax_error")
 
     def test_unsupported_syntax_rejected(self):
-        engine = MicaEngine()
+        engine = SericiteEngine()
         for source in ("import os\n", "del x\n", "class A:\n    pass\n"):
-            with self.assertRaises(MicaError, msg=source):
+            with self.assertRaises(SericiteError, msg=source):
                 engine.create_root(source)
 
     def test_dunder_names_rejected(self):
-        engine = MicaEngine()
-        with self.assertRaises(MicaError):
+        engine = SericiteEngine()
+        with self.assertRaises(SericiteError):
             engine.create_root("x = __builtins__\n")
-        with self.assertRaises(MicaError):
+        with self.assertRaises(SericiteError):
             engine.create_root('sub = VM("x = 1")\nsub.__class__()\n')
 
     def test_reserved_names_call_only(self):
-        engine = MicaEngine()
-        with self.assertRaises(MicaError):
+        engine = SericiteEngine()
+        with self.assertRaises(SericiteError):
             engine.create_root("f = input\n")
-        with self.assertRaises(MicaError):
+        with self.assertRaises(SericiteError):
             engine.create_root("x = VM\n")
 
     def test_unsupported_attribute_rejected(self):
-        engine = MicaEngine()
-        with self.assertRaises(MicaError):
+        engine = SericiteEngine()
+        with self.assertRaises(SericiteError):
             engine.create_root('sub = VM("x = 1")\nsub.evil()\n')
 
     def test_runtime_error_reported(self):
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root("x = missing\n")
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertIn("missing", ctx.exception.message)
         self.assertEqual(vm.snapshot()["state"], "error")
         self.assertIsNotNone(vm.snapshot()["error"])
 
     def test_bad_add_operands(self):
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root('x = "a" + 1\n')
-        with self.assertRaises(MicaError):
+        with self.assertRaises(SericiteError):
             vm.run()
 
 

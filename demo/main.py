@@ -2,12 +2,12 @@
 
 结构：
   宿主 Python ──(提示词1)── LLM 外层会话
-      │  tool_call: mica_exec → 在新建的 mica VM 中执行（授予 llm_chat / http_get）
+      │  tool_call: sericite_exec → 在新建的 sericite VM 中执行（授予 llm_chat / http_get）
       ▼
-  VM 中的 mica 代码（AI 生成）──(提示词2)── LLM 内层会话
-      │  tool_call: mica_exec → 在下一层 VM 中执行（不授予 llm_chat，链条终止）
+  VM 中的 sericite 代码（AI 生成）──(提示词2)── LLM 内层会话
+      │  tool_call: sericite_exec → 在下一层 VM 中执行（不授予 llm_chat，链条终止）
       ▼
-  内层 VM 中的 mica 代码（AI 生成，做点简单的练习）
+  内层 VM 中的 sericite 代码（AI 生成，做点简单的练习）
 
 运行：先配置 .env（API_URL / API_KEY / API_MODEL），再
   uv run --extra demo demo/main.py
@@ -27,10 +27,10 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from mica import MicaEngine, MicaError, MicaLimits  # noqa: E402
+from sericite import SericiteEngine, SericiteError, SericiteLimits  # noqa: E402
 
 DOC_PATH = Path(__file__).resolve().parent.parent / "docs" / "language-reference.zh-CN.md"
-DOC_VFS_PATH = "/mica语言特性速览.md"
+DOC_VFS_PATH = "/sericite语言特性速览.md"
 INNER_PROMPT_VFS_PATH = "/prompt_inner.txt"
 MAX_RESULT_CHARS = 4000
 MAX_ROUNDS = 30
@@ -39,12 +39,12 @@ TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "mica_exec",
-            "description": "在当前工作空间执行一段 mica 代码，返回其标准输出。",
+            "name": "sericite_exec",
+            "description": "在当前工作空间执行一段 sericite 代码，返回其标准输出。",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "code": {"type": "string", "description": "mica 源码"}
+                    "code": {"type": "string", "description": "sericite 源码"}
                 },
                 "required": ["code"],
             },
@@ -96,23 +96,23 @@ MAX_FETCH_CHARS = 200_000
 
 PROMPT_INNER = """你是一个有代码执行能力的助手。
 
-你可以使用 mica_exec 工具执行代码，以及 file_read / file_write / file_list 工具读写当前工作目录的文件。
+你可以使用 sericite_exec 工具执行代码，以及 file_read / file_write / file_list 工具读写当前工作目录的文件。
 
-工作目录里有一份 `mica语言特性速览.md`，写任何 mica 代码之前，先用 file_read 读完它并严格遵守——mica 是 Python 的子集但有差异（没有列表/字典方法、没有 f-string、没有 import）。
+工作目录里有一份 `sericite语言特性速览.md`，写任何 sericite 代码之前，先用 file_read 读完它并严格遵守——sericite 是 Python 的子集但有差异（没有列表/字典方法、没有 f-string、没有 import）。
 
-任务：随便做点简单的事情作为练习，比如用 mica_exec 算几个斐波那契数、写个文件再读出来验证。做完后给出简短的总结。"""
+任务：随便做点简单的事情作为练习，比如用 sericite_exec 算几个斐波那契数、写个文件再读出来验证。做完后给出简短的总结。"""
 
 PROMPT1 = """你是一个有代码执行能力的助手。
 
-你可以使用 mica_exec 工具执行代码（mica 语言），以及 file_read / file_write / file_list 工具读写当前工作目录的文件。
+你可以使用 sericite_exec 工具执行代码（sericite 语言），以及 file_read / file_write / file_list 工具读写当前工作目录的文件。
 
-工作目录里有一份 `mica语言特性速览.md`，写任何 mica 代码之前，先用 file_read 读完它并严格遵守——mica 是 Python 的子集但有差异（没有列表/字典/字符串方法、没有 f-string、没有 import、列表追加要用 lst = lst + [x]）。
+工作目录里有一份 `sericite语言特性速览.md`，写任何 sericite 代码之前，先用 file_read 读完它并严格遵守——sericite 是 Python 的子集但有差异（没有列表/字典/字符串方法、没有 f-string、没有 import、列表追加要用 lst = lst + [x]）。
 
 请完成两件事：
 
-1. 练习：用 mica_exec 随便做点简单的事情（比如算几个斐波那契数并打印）。
+1. 练习：用 sericite_exec 随便做点简单的事情（比如算几个斐波那契数并打印）。
 
-2. 递归任务：你的 mica 执行环境额外被授予了两个函数：llm_chat(payload) 和 http_get(url)。用它们实现一个完整的 LLM 会话循环：
+2. 递归任务：你的 sericite 执行环境额外被授予了两个函数：llm_chat(payload) 和 http_get(url)。用它们实现一个完整的 LLM 会话循环：
    - llm_chat 的入参是 dict：{"messages": [...], "tools": [...]}，返回 dict：
      {"content": 字符串, "tool_calls": [{"id":..., "name":..., "args": {...}}],
       "assistant_message": {...}}
@@ -120,16 +120,16 @@ PROMPT1 = """你是一个有代码执行能力的助手。
    - 把 resp["assistant_message"] 原样追加进 messages；每个工具结果用
      {"role": "tool", "tool_call_id": 调用id, "content": 结果字符串} 追加。
    - 会话的系统提示词用 file 里的 /prompt_inner.txt（read_file 读取）。
-   - tools 用和你自己一样的四个工具（mica_exec / file_read / file_write / file_list）。
+   - tools 用和你自己一样的四个工具（sericite_exec / file_read / file_write / file_list）。
      如果你不确定 tools 的 schema 写法，不要凭记忆手写——先用 http_get 从
      """ + API_HELP_URL + """
      获取帮助文本（OpenAI 兼容 API 的 tool_calls 协议说明，Markdown 纯文本），照着它写。
-   - 对方调用 mica_exec 时：创建一个新 VM 执行（VM(code)），并先 write_file 把 `mica语言特性速览.md` 放进它的工作目录。不要给这些 VM 授予任何 functions。
+   - 对方调用 sericite_exec 时：创建一个新 VM 执行（VM(code)），并先 write_file 把 `sericite语言特性速览.md` 放进它的工作目录。不要给这些 VM 授予任何 functions。
    - 对方调用 file_read / file_write / file_list 时：直接用你环境里的 read_file / write_file / list_dir 处理（共享当前工作目录）。
    - 循环直到对方不再调用工具（tool_calls 为空列表），把对方的最终回答 print 出来。
    - 所有文件内容都用 read_file 读出来后嵌入，不要凭记忆复述。
 
-把这个会话循环写进一次 mica_exec 里执行。注意 mica 没有 try 之外的容错，代码尽量朴素。"""
+把这个会话循环写进一次 sericite_exec 里执行。注意 sericite 没有 try 之外的容错，代码尽量朴素。"""
 
 
 def _normalize_api_url(url: str) -> str:
@@ -236,7 +236,7 @@ def harvest(vm, workspace: dict[str, str], prefix: str = "/") -> None:
         path = prefix.rstrip("/") + "/" + name
         try:
             workspace[path] = vm.read_file(path)
-        except MicaError as exc:
+        except SericiteError as exc:
             if exc.kind == "is_directory":
                 harvest(vm, workspace, path)
             else:
@@ -255,9 +255,9 @@ def make_host_handler(llm_chat, http_get, seed_files: dict[str, str]):
     workspace: dict[str, str] = {}
 
     def handler(name: str, args: dict) -> str:
-        if name == "mica_exec":
+        if name == "sericite_exec":
             code = args.get("code", "")
-            engine = MicaEngine()
+            engine = SericiteEngine()
             try:
                 vm = engine.create_root(
                     code,
@@ -266,9 +266,9 @@ def make_host_handler(llm_chat, http_get, seed_files: dict[str, str]):
                 for path, text in {**seed_files, **workspace}.items():
                     vm.write_file(path, text)
                 output = vm.run()
-            except MicaError as exc:
+            except SericiteError as exc:
                 # 编译/运行错误都作为工具结果喂回，让模型自己改代码重试
-                return f"(mica error: {exc})"
+                return f"(sericite error: {exc})"
             harvest(vm, workspace)
             return output[:MAX_RESULT_CHARS] or "(no output)"
         if name == "file_read":

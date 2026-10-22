@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 
-class MicaError(Exception):
+class SericiteError(Exception):
     def __init__(
         self,
         message: str,
@@ -18,7 +18,7 @@ class MicaError(Exception):
         self.line = line
         self.column = column
 
-    def bind(self, filename: str, line: int | None) -> MicaError:
+    def bind(self, filename: str, line: int | None) -> SericiteError:
         if self.filename is None:
             self.filename = filename
         if self.line is None:
@@ -26,7 +26,7 @@ class MicaError(Exception):
         return self
 
     def __str__(self) -> str:
-        location = self.filename or "<mica>"
+        location = self.filename or "<sericite>"
         if self.line is not None:
             location += f":{self.line}"
             if self.column is not None:

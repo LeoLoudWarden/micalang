@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 from . import isa
 from .compiler import RESERVED_NAMES, VM_METHODS, compile_source
-from .errors import MicaError
+from .errors import SericiteError
 from .io import InputRequired, OutputLimitExceeded, VirtualIO
 from .vfs import VirtualFileSystem
 
@@ -31,7 +31,7 @@ _VM_OPTIONS = {
 
 
 @dataclass(frozen=True)
-class MicaLimits:
+class SericiteLimits:
     max_instructions: int = 1_000_000
     max_output_bytes: int = 1_048_576
     max_frames: int = 100
@@ -54,10 +54,10 @@ class Frame:
     stack: list[object] = field(default_factory=list)
     locals: dict[str, object] = field(default_factory=dict)
     module_locals: dict[str, object] | None = None
-    active_error: MicaError | None = None
+    active_error: SericiteError | None = None
 
 
-class MicaFunction:
+class SericiteFunction:
     def __init__(self, code: isa.CodeUnit, defaults: tuple[object, ...] = ()) -> None:
         self.code = code
         self.defaults = defaults
@@ -81,7 +81,7 @@ def _make_iterator(value: object) -> _Iterator:
         return _Iterator(list(value))
     if type(value) is dict:
         return _Iterator(list(value.keys()))
-    raise MicaError(
+    raise SericiteError(
         f"'{_type_name(value)}' is not iterable", kind="type_error"
     )
 
@@ -104,8 +104,8 @@ class _GrantedHostFunction:
 
 
 @dataclass(frozen=True)
-class _GrantedMicaFunction:
-    """父 VM 授予的 mica 函数：在被授予 VM 的帧栈上执行，但解析定义方的模块全局。"""
+class _GrantedSericiteFunction:
+    """父 VM 授予的 sericite 函数：在被授予 VM 的帧栈上执行，但解析定义方的模块全局。"""
 
     name: str
     code: isa.CodeUnit
@@ -123,12 +123,12 @@ class VMContext:
     parent_id: int | None
     io: VirtualIO
     fs: VirtualFileSystem
-    limits: MicaLimits
+    limits: SericiteLimits
     frames: list[Frame] = field(default_factory=list)
     granted: dict[str, object] = field(default_factory=dict)
     state: str = "ready"
     last_line: int | None = None
-    error: MicaError | None = None
+    error: SericiteError | None = None
     instruction_count: int = 0
     alloc_bytes: int = 0
     child_count: int = 0
@@ -136,27 +136,27 @@ class VMContext:
 
     @property
     def filename(self) -> str:
-        return f"<mica:vm_{self.vm_id}>"
+        return f"<sericite:vm_{self.vm_id}>"
 
 
 class VMHandle:
     _METHODS = VM_METHODS
 
-    def __init__(self, engine: MicaEngine, vm_id: int) -> None:
+    def __init__(self, engine: SericiteEngine, vm_id: int) -> None:
         self._engine = engine
         self._vm_id = vm_id
 
     def run(self, inputs: object = None) -> str:
         if inputs is not None:
             if not isinstance(inputs, (list, tuple)):
-                raise MicaError("VM.run inputs must be a list of strings")
+                raise SericiteError("VM.run inputs must be a list of strings")
             for value in inputs:
                 self.feed_input(value)
         return self._engine._run(self)
 
     def feed_input(self, value: object) -> None:
         if not isinstance(value, str):
-            raise MicaError("VM input must be a string")
+            raise SericiteError("VM input must be a string")
         context = self._engine._context(self)
         context.io.feed_input(value)
         if context.state == "waiting_input":
@@ -196,9 +196,9 @@ class VMHandle:
         return f"<VM id={context.vm_id} state={context.state}>"
 
 
-class MicaEngine:
-    def __init__(self, limits: MicaLimits | None = None) -> None:
-        self._limits = limits or MicaLimits()
+class SericiteEngine:
+    def __init__(self, limits: SericiteLimits | None = None) -> None:
+        self._limits = limits or SericiteLimits()
         self._contexts: dict[int, VMContext] = {}
         self._next_vm_id = 0
 
@@ -207,7 +207,7 @@ class MicaEngine:
         source: str,
         inputs: Iterable[str] | None = None,
         input_provider: Callable[[], str | None] | None = None,
-        limits: MicaLimits | None = None,
+        limits: SericiteLimits | None = None,
         functions: dict[str, Callable[..., object]] | None = None,
     ) -> VMHandle:
         effective = limits or self._limits
@@ -235,7 +235,7 @@ class MicaEngine:
         for name, callback in functions.items():
             _check_grant_name(name)
             if not callable(callback):
-                raise MicaError(
+                raise SericiteError(
                     f"granted function '{name}' is not callable",
                     kind="type_error",
                 )
@@ -249,16 +249,16 @@ class MicaEngine:
         parent_id: int | None,
         depth: int,
         io: VirtualIO,
-        limits: MicaLimits,
+        limits: SericiteLimits,
         granted: dict[str, object] | None = None,
     ) -> VMHandle:
-        filename = f"<mica:vm_{self._next_vm_id}>"
+        filename = f"<sericite:vm_{self._next_vm_id}>"
         if len(source.encode("utf-8")) > _MAX_SOURCE_BYTES:
-            raise MicaError(
+            raise SericiteError(
                 "source too large", kind="validation_error", filename=filename
             )
         if len(self._contexts) >= limits.max_total_vms:
-            raise MicaError(
+            raise SericiteError(
                 "total VM limit exceeded",
                 kind="resource_exhausted",
                 filename=filename,
@@ -287,13 +287,13 @@ class MicaEngine:
 
     def _context(self, handle: VMHandle) -> VMContext:
         if handle._engine is not self:
-            raise MicaError("VM handle belongs to another engine", kind="internal_error")
+            raise SericiteError("VM handle belongs to another engine", kind="internal_error")
         return self._contexts[handle._vm_id]
 
     def _run(self, handle: VMHandle) -> str:
         context = self._context(handle)
         if context.running:
-            raise MicaError("VM is already running")
+            raise SericiteError("VM is already running")
         context.running = True
         try:
             while context.state == "ready":
@@ -308,7 +308,7 @@ class MicaEngine:
     def _step(self, handle: VMHandle) -> dict[str, object]:
         context = self._context(handle)
         if context.running:
-            raise MicaError("VM is already running")
+            raise SericiteError("VM is already running")
         if context.state != "ready":
             return self._snapshot(context)
         context.running = True
@@ -332,7 +332,7 @@ class MicaEngine:
     def _step_instruction(self, handle: VMHandle) -> dict[str, object]:
         context = self._context(handle)
         if context.running:
-            raise MicaError("VM is already running")
+            raise SericiteError("VM is already running")
         if context.state != "ready":
             return self._snapshot(context)
         context.running = True
@@ -361,7 +361,7 @@ class MicaEngine:
         if context.instruction_count > context.limits.max_instructions:
             self._fail(
                 context,
-                MicaError("instruction limit exceeded", kind="resource_exhausted"),
+                SericiteError("instruction limit exceeded", kind="resource_exhausted"),
                 instr.line,
             )
             return False
@@ -373,11 +373,11 @@ class MicaEngine:
         except OutputLimitExceeded:
             self._fail(
                 context,
-                MicaError("output limit exceeded", kind="resource_exhausted"),
+                SericiteError("output limit exceeded", kind="resource_exhausted"),
                 instr.line,
             )
             return False
-        except MicaError as exc:
+        except SericiteError as exc:
             if self._handle_exception(context, exc):
                 return True
             self._fail(context, exc, instr.line)
@@ -385,14 +385,14 @@ class MicaEngine:
         except RecursionError:
             self._fail(
                 context,
-                MicaError(
+                SericiteError(
                     "recursion limit exceeded", kind="resource_exhausted"
                 ),
                 instr.line,
             )
             return False
         except OverflowError:
-            error = MicaError("numeric overflow", kind="conversion_error")
+            error = SericiteError("numeric overflow", kind="conversion_error")
             if self._handle_exception(context, error):
                 return True
             self._fail(context, error, instr.line)
@@ -400,13 +400,13 @@ class MicaEngine:
         except Exception:
             self._fail(
                 context,
-                MicaError("internal runtime error", kind="internal_error"),
+                SericiteError("internal runtime error", kind="internal_error"),
                 instr.line,
             )
             return False
         return True
 
-    def _fail(self, context: VMContext, error: MicaError, line: int) -> None:
+    def _fail(self, context: VMContext, error: SericiteError, line: int) -> None:
         context.error = error.bind(context.filename, line)
         context.state = (
             "resource_exhausted"
@@ -414,7 +414,7 @@ class MicaEngine:
             else "error"
         )
 
-    def _handle_exception(self, context: VMContext, error: MicaError) -> bool:
+    def _handle_exception(self, context: VMContext, error: SericiteError) -> bool:
         if error.kind in _UNCATCHABLE_KINDS:
             return False
         while context.frames:
@@ -457,14 +457,14 @@ class MicaEngine:
         if op == isa.LOAD_CONST:
             if type(arg) is int:
                 if arg.bit_length() > context.limits.max_int_bits:
-                    raise MicaError(
+                    raise SericiteError(
                         "integer size limit exceeded", kind="resource_exhausted"
                     )
             elif (
                 type(arg) is str
                 and len(arg) > context.limits.max_string_bytes
             ):
-                raise MicaError(
+                raise SericiteError(
                     "string size limit exceeded", kind="resource_exhausted"
                 )
             stack.append(arg)
@@ -478,7 +478,7 @@ class MicaEngine:
             stack.pop()
         elif op == isa.BUILD_LIST:
             if arg > context.limits.max_list_size:
-                raise MicaError(
+                raise SericiteError(
                     "list size limit exceeded", kind="resource_exhausted"
                 )
             items = stack[len(stack) - arg :] if arg else []
@@ -488,7 +488,7 @@ class MicaEngine:
             stack.append(list(items))
         elif op == isa.BUILD_DICT:
             if arg > context.limits.max_dict_size:
-                raise MicaError(
+                raise SericiteError(
                     "dict size limit exceeded", kind="resource_exhausted"
                 )
             pairs = stack[len(stack) - 2 * arg :] if arg else []
@@ -498,7 +498,7 @@ class MicaEngine:
             for position in range(0, len(pairs), 2):
                 key = pairs[position]
                 if type(key) not in (str, int, float, bool) and key is not None:
-                    raise MicaError(
+                    raise SericiteError(
                         f"unhashable key type: {_type_name(key)}",
                         kind="type_error",
                     )
@@ -554,7 +554,7 @@ class MicaEngine:
             )
             if defaults_count:
                 del stack[len(stack) - defaults_count :]
-            stack.append(MicaFunction(code, defaults))
+            stack.append(SericiteFunction(code, defaults))
         elif op == isa.GET_ITER:
             iterator = _make_iterator(stack.pop())
             self._charge_alloc(context, len(iterator.items) * 8)
@@ -573,16 +573,16 @@ class MicaEngine:
                 raise frame.locals[arg[1]]
             if arg is None:
                 if frame.active_error is None:
-                    raise MicaError(
+                    raise SericiteError(
                         "raise without an active error", kind="raise_error"
                     )
                 raise frame.active_error
             message = stack.pop()
             if type(message) is not str:
-                raise MicaError(
+                raise SericiteError(
                     "raise expects a string message", kind="type_error"
                 )
-            raise MicaError(message, kind="raise_error")
+            raise SericiteError(message, kind="raise_error")
         elif op == isa.CALL:
             argc, kw_names = arg, ()
             self._call(context, frame, argc, kw_names)
@@ -600,7 +600,7 @@ class MicaEngine:
                 context.frames[-1].stack.append(value)
             advance = False
         else:
-            raise MicaError(f"unknown opcode: {op}", kind="internal_error")
+            raise SericiteError(f"unknown opcode: {op}", kind="internal_error")
         if advance and context.state == "ready":
             frame.pc += 1
 
@@ -616,13 +616,13 @@ class MicaEngine:
         function = stack[base - 1]
         args = tuple(stack[base : base + argc])
         kwargs = dict(zip(kw_names, stack[base + argc :]))
-        if isinstance(function, MicaFunction):
+        if isinstance(function, SericiteFunction):
             code = function.code
             locals_ = self._bind_arguments(
                 code, args, kwargs, function.defaults
             )
             if len(context.frames) + 1 > context.limits.max_frames:
-                raise MicaError(
+                raise SericiteError(
                     "call depth limit exceeded", kind="resource_exhausted"
                 )
             del stack[base - 1 :]
@@ -634,10 +634,10 @@ class MicaEngine:
                 result = function.callback(*args, **kwargs)
             except InputRequired:
                 raise
-            except MicaError:
+            except SericiteError:
                 raise
             except TypeError:
-                raise MicaError(
+                raise SericiteError(
                     f"invalid arguments for {function.name}", kind="type_error"
                 ) from None
             del stack[base - 1 :]
@@ -654,10 +654,10 @@ class MicaEngine:
             }
             try:
                 raw = function.callback(*host_args, **host_kwargs)
-            except MicaError:
+            except SericiteError:
                 raise
             except Exception as exc:
-                raise MicaError(
+                raise SericiteError(
                     f"host function '{function.name}' failed with "
                     f"{type(exc).__name__}",
                     kind="ffi_error",
@@ -678,13 +678,13 @@ class MicaEngine:
             frame.pc += 1
             stack.append(result)
             return
-        if isinstance(function, _GrantedMicaFunction):
+        if isinstance(function, _GrantedSericiteFunction):
             code = function.code
             locals_ = self._bind_arguments(
                 code, args, kwargs, function.defaults
             )
             if len(context.frames) + 1 > context.limits.max_frames:
-                raise MicaError(
+                raise SericiteError(
                     "call depth limit exceeded", kind="resource_exhausted"
                 )
             del stack[base - 1 :]
@@ -697,7 +697,7 @@ class MicaEngine:
                 )
             )
             return
-        raise MicaError("value is not callable", kind="type_error")
+        raise SericiteError("value is not callable", kind="type_error")
 
     def _bind_arguments(
         self,
@@ -708,7 +708,7 @@ class MicaEngine:
     ) -> dict[str, object]:
         params = code.params
         if len(args) > len(params):
-            raise MicaError(
+            raise SericiteError(
                 f"{code.name}() expects {len(params)} argument(s), "
                 f"got {len(args)}",
                 kind="arity_error",
@@ -716,12 +716,12 @@ class MicaEngine:
         locals_ = dict(zip(params, args))
         for key, value in kwargs.items():
             if key in locals_:
-                raise MicaError(
+                raise SericiteError(
                     f"{code.name}() got multiple values for '{key}'",
                     kind="arity_error",
                 )
             if key not in params:
-                raise MicaError(
+                raise SericiteError(
                     f"{code.name}() got unexpected argument '{key}'",
                     kind="arity_error",
                 )
@@ -733,7 +733,7 @@ class MicaEngine:
                     locals_[name] = defaults[offset]
         if len(locals_) != len(params):
             missing = [name for name in params if name not in locals_]
-            raise MicaError(
+            raise SericiteError(
                 f"{code.name}() missing argument(s): {', '.join(missing)}",
                 kind="arity_error",
             )
@@ -754,7 +754,7 @@ class MicaEngine:
         builtin = self._builtin(context, name)
         if builtin is not None:
             return builtin
-        raise MicaError(f"name '{name}' is not defined", kind="name_error")
+        raise SericiteError(f"name '{name}' is not defined", kind="name_error")
 
     def _builtin(self, context: VMContext, name: str) -> _NativeFunction | None:
         if name == "input":
@@ -809,7 +809,7 @@ class MicaEngine:
         self, parent: VMContext, source: object, config: dict[str, object]
     ) -> VMHandle:
         if not isinstance(source, str):
-            raise MicaError("VM source must be a string", kind="type_error")
+            raise SericiteError("VM source must be a string", kind="type_error")
         self._charge_work(parent, 1 + len(source) // 64)
         granted = self._validate_child_functions(parent, config.pop("functions", None))
         limits = parent.limits
@@ -817,11 +817,11 @@ class MicaEngine:
             overrides: dict[str, int] = {}
             for key, value in config.items():
                 if key not in _VM_OPTIONS:
-                    raise MicaError(
+                    raise SericiteError(
                         f"unknown VM option: {key}", kind="type_error"
                     )
                 if type(value) is not int or value < 0:
-                    raise MicaError(
+                    raise SericiteError(
                         f"VM option {key} must be a non-negative int",
                         kind="type_error",
                     )
@@ -829,9 +829,9 @@ class MicaEngine:
             limits = dataclasses.replace(parent.limits, **overrides)
         depth = parent.depth + 1
         if depth > limits.max_vm_depth:
-            raise MicaError("VM depth limit exceeded", kind="resource_exhausted")
+            raise SericiteError("VM depth limit exceeded", kind="resource_exhausted")
         if parent.child_count >= parent.limits.max_child_vms:
-            raise MicaError(
+            raise SericiteError(
                 "child VM limit exceeded", kind="resource_exhausted"
             )
         parent.child_count += 1
@@ -850,24 +850,24 @@ class MicaEngine:
         if functions is None:
             return {}
         if not isinstance(functions, dict):
-            raise MicaError(
+            raise SericiteError(
                 "VM option functions must be a dict", kind="type_error"
             )
         granted: dict[str, object] = {}
         for name, value in functions.items():
             _check_grant_name(name)
-            if isinstance(value, MicaFunction):
-                granted[name] = _GrantedMicaFunction(
+            if isinstance(value, SericiteFunction):
+                granted[name] = _GrantedSericiteFunction(
                     name, value.code, parent.frames[0].locals, value.defaults
                 )
             elif isinstance(value, _GrantedHostFunction):
                 granted[name] = _GrantedHostFunction(name, value.callback)
-            elif isinstance(value, _GrantedMicaFunction):
-                granted[name] = _GrantedMicaFunction(
+            elif isinstance(value, _GrantedSericiteFunction):
+                granted[name] = _GrantedSericiteFunction(
                     name, value.code, value.module_locals, value.defaults
                 )
             else:
-                raise MicaError(
+                raise SericiteError(
                     f"granted value '{name}' is not a function",
                     kind="type_error",
                 )
@@ -881,7 +881,7 @@ class MicaEngine:
     def _read_input(self, context: VMContext) -> str:
         value = context.io.read_input()
         if len(value) > context.limits.max_string_bytes:
-            raise MicaError(
+            raise SericiteError(
                 "string size limit exceeded", kind="resource_exhausted"
             )
         self._charge_alloc(context, len(value) * 4)
@@ -900,14 +900,14 @@ class MicaEngine:
     def _len(self, value: object) -> int:
         if isinstance(value, (str, list, dict)):
             return len(value)
-        raise MicaError(
+        raise SericiteError(
             f"object of type '{_type_name(value)}' has no len()",
             kind="type_error",
         )
 
     def _keys(self, context: VMContext, value: object) -> list[object]:
         if type(value) is not dict:
-            raise MicaError(
+            raise SericiteError(
                 f"keys() expects a dict, got {_type_name(value)}",
                 kind="type_error",
             )
@@ -922,29 +922,29 @@ class MicaEngine:
             try:
                 return self._check_int(context, int(value))
             except ValueError:
-                raise MicaError(
+                raise SericiteError(
                     "cannot convert nan to int", kind="conversion_error"
                 ) from None
         if type(value) is str:
             text = value.strip()
             if len(text) > context.limits.max_int_bits // 3:
-                raise MicaError(
+                raise SericiteError(
                     "integer size limit exceeded", kind="resource_exhausted"
                 )
             try:
                 return self._check_int(context, int(text, 10))
             except ValueError:
-                raise MicaError(
+                raise SericiteError(
                     f"cannot convert to int: {value!r}", kind="conversion_error"
                 ) from None
-        raise MicaError(
+        raise SericiteError(
             f"cannot convert {_type_name(value)} to int", kind="type_error"
         )
 
     def _str_builtin(self, context: VMContext, value: object) -> str:
         result = _to_str(value)
         if len(result) > context.limits.max_string_bytes:
-            raise MicaError(
+            raise SericiteError(
                 "string size limit exceeded", kind="resource_exhausted"
             )
         self._charge_alloc(context, len(result) * 4)
@@ -960,31 +960,31 @@ class MicaEngine:
             try:
                 return float(value.strip())
             except ValueError:
-                raise MicaError(
+                raise SericiteError(
                     f"cannot convert to float: {value!r}",
                     kind="conversion_error",
                 ) from None
-        raise MicaError(
+        raise SericiteError(
             f"cannot convert {_type_name(value)} to float", kind="type_error"
         )
 
     def _range(self, context: VMContext, args: tuple[object, ...]) -> list[int]:
         if not 1 <= len(args) <= 3:
-            raise MicaError(
+            raise SericiteError(
                 f"range() expects 1 to 3 argument(s), got {len(args)}",
                 kind="arity_error",
             )
         for value in args:
             if type(value) is not int:
-                raise MicaError(
+                raise SericiteError(
                     f"range() arguments must be int, got {_type_name(value)}",
                     kind="type_error",
                 )
         if len(args) == 3 and args[2] == 0:
-            raise MicaError("range() step cannot be zero", kind="type_error")
+            raise SericiteError("range() step cannot be zero", kind="type_error")
         result = range(*args)
         if len(result) > context.limits.max_list_size:
-            raise MicaError(
+            raise SericiteError(
                 "list size limit exceeded", kind="resource_exhausted"
             )
         self._charge_alloc(context, len(result) * 8)
@@ -996,7 +996,7 @@ class MicaEngine:
         if op == "+":
             if type(left) is str and type(right) is str:
                 if len(left) + len(right) > context.limits.max_string_bytes:
-                    raise MicaError(
+                    raise SericiteError(
                         "string size limit exceeded", kind="resource_exhausted"
                     )
                 self._charge_alloc(context, (len(left) + len(right)) * 4)
@@ -1005,7 +1005,7 @@ class MicaEngine:
             if type(left) is list and type(right) is list:
                 result = left + right
                 if len(result) > context.limits.max_list_size:
-                    raise MicaError(
+                    raise SericiteError(
                         "list size limit exceeded", kind="resource_exhausted"
                     )
                 self._charge_alloc(context, len(result) * 8)
@@ -1023,7 +1023,7 @@ class MicaEngine:
         if op in ("/", "//", "%"):
             if _is_number(left) and _is_number(right):
                 if right == 0:
-                    raise MicaError(
+                    raise SericiteError(
                         "division by zero"
                         if op != "%"
                         else "modulo by zero",
@@ -1035,11 +1035,11 @@ class MicaEngine:
                     return self._check_int(context, left // right)
                 return self._check_int(context, left % right)
             raise _operand_error(op, left, right)
-        raise MicaError(f"unknown operator: {op}", kind="internal_error")
+        raise SericiteError(f"unknown operator: {op}", kind="internal_error")
 
     def _check_int(self, context: VMContext, value: object) -> object:
         if type(value) is int and value.bit_length() > context.limits.max_int_bits:
-            raise MicaError(
+            raise SericiteError(
                 "integer size limit exceeded", kind="resource_exhausted"
             )
         return value
@@ -1054,7 +1054,7 @@ class MicaEngine:
         while True:
             current.alloc_bytes += amount
             if current.alloc_bytes > current.limits.max_total_bytes:
-                raise MicaError(
+                raise SericiteError(
                     "total memory limit exceeded", kind="resource_exhausted"
                 )
             if current.parent_id is None:
@@ -1069,7 +1069,7 @@ class MicaEngine:
         while True:
             current.instruction_count += amount
             if current.instruction_count > current.limits.max_instructions:
-                raise MicaError(
+                raise SericiteError(
                     "instruction limit exceeded", kind="resource_exhausted"
                 )
             if current.parent_id is None:
@@ -1080,13 +1080,13 @@ class MicaEngine:
         if op == "-":
             if _is_number(value):
                 return self._check_int(context, -value)
-            raise MicaError(
+            raise SericiteError(
                 f"bad operand type for unary '-': {_type_name(value)}",
                 kind="type_error",
             )
         if op == "not":
             return not _truthy(value)
-        raise MicaError(f"unknown operator: {op}", kind="internal_error")
+        raise SericiteError(f"unknown operator: {op}", kind="internal_error")
 
     def _compare_op(
         self, context: VMContext, op: str, left: object, right: object
@@ -1111,7 +1111,7 @@ class MicaEngine:
             if op == ">":
                 return left > right
             return left >= right
-        raise MicaError(
+        raise SericiteError(
             f"'{op}' not supported between {_type_name(left)} "
             f"and {_type_name(right)}",
             kind="type_error",
@@ -1120,25 +1120,25 @@ class MicaEngine:
     def _index(self, value: object, index: object) -> object:
         if type(value) is dict:
             if type(index) not in (str, int, float, bool) and index is not None:
-                raise MicaError(
+                raise SericiteError(
                     f"unhashable key type: {_type_name(index)}",
                     kind="type_error",
                 )
             if index not in value:
-                raise MicaError(
+                raise SericiteError(
                     f"missing key: {_to_str(index)!s}", kind="key_error"
                 )
             return value[index]
         if isinstance(value, (str, list)):
             if type(index) is not int:
-                raise MicaError(
+                raise SericiteError(
                     f"indices must be int, got {_type_name(index)}",
                     kind="type_error",
                 )
             if not -len(value) <= index < len(value):
-                raise MicaError("index out of range", kind="index_error")
+                raise SericiteError("index out of range", kind="index_error")
             return value[index]
-        raise MicaError(
+        raise SericiteError(
             f"'{_type_name(value)}' is not indexable", kind="type_error"
         )
 
@@ -1147,7 +1147,7 @@ class MicaEngine:
     ) -> None:
         if type(target) is dict:
             if type(index) not in (str, int, float, bool) and index is not None:
-                raise MicaError(
+                raise SericiteError(
                     f"unhashable key type: {_type_name(index)}",
                     kind="type_error",
                 )
@@ -1155,7 +1155,7 @@ class MicaEngine:
                 index not in target
                 and len(target) >= context.limits.max_dict_size
             ):
-                raise MicaError(
+                raise SericiteError(
                     "dict size limit exceeded", kind="resource_exhausted"
                 )
             if index not in target:
@@ -1163,17 +1163,17 @@ class MicaEngine:
             target[index] = value
             return
         if type(target) is not list:
-            raise MicaError(
+            raise SericiteError(
                 f"'{_type_name(target)}' does not support item assignment",
                 kind="type_error",
             )
         if type(index) is not int:
-            raise MicaError(
+            raise SericiteError(
                 f"indices must be int, got {_type_name(index)}",
                 kind="type_error",
             )
         if not -len(target) <= index < len(target):
-            raise MicaError("index out of range", kind="index_error")
+            raise SericiteError("index out of range", kind="index_error")
         target[index] = value
 
     def _load_attr(self, context: VMContext, value: object, attr: object) -> object:
@@ -1186,7 +1186,7 @@ class MicaEngine:
                     ),
                 )
             return _NativeFunction(f"VM.{attr}", getattr(value, attr))
-        raise MicaError(
+        raise SericiteError(
             "attribute access is not available for this value",
             kind="type_error",
         )
@@ -1267,9 +1267,9 @@ class MicaEngine:
                 }
             finally:
                 _seen.discard(ident)
-        if isinstance(value, (VMHandle, MicaFunction)):
+        if isinstance(value, (VMHandle, SericiteFunction)):
             return repr(value)
-        if isinstance(value, (_GrantedHostFunction, _GrantedMicaFunction)):
+        if isinstance(value, (_GrantedHostFunction, _GrantedSericiteFunction)):
             return repr(value)
         return f"<{type(value).__name__}>"
 
@@ -1280,23 +1280,23 @@ def _is_number(value: object) -> bool:
 
 def _check_grant_name(name: object) -> None:
     if not isinstance(name, str) or not name.isidentifier() or name.startswith("__"):
-        raise MicaError(
+        raise SericiteError(
             f"invalid granted function name: {name!r}", kind="type_error"
         )
     if name in RESERVED_NAMES:
-        raise MicaError(
+        raise SericiteError(
             f"granted function name '{name}' conflicts with a builtin",
             kind="type_error",
         )
 
 
 def _to_host(value: object, budget: list[int], depth: int = 0) -> object:
-    """把 mica 值深拷贝为宿主侧纯数据结构；不允许句柄/函数越界。"""
+    """把 sericite 值深拷贝为宿主侧纯数据结构；不允许句柄/函数越界。"""
     budget[0] -= 1
     if budget[0] < 0:
-        raise MicaError("FFI argument structure too large", kind="ffi_error")
+        raise SericiteError("FFI argument structure too large", kind="ffi_error")
     if depth > 64:
-        raise MicaError("FFI argument nested too deeply", kind="ffi_error")
+        raise SericiteError("FFI argument nested too deeply", kind="ffi_error")
     if value is None or type(value) in (str, int, float, bool):
         return value
     if type(value) is list:
@@ -1306,7 +1306,7 @@ def _to_host(value: object, budget: list[int], depth: int = 0) -> object:
             _to_host(key, budget, depth + 1): _to_host(item, budget, depth + 1)
             for key, item in value.items()
         }
-    raise MicaError(
+    raise SericiteError(
         f"value of type '{_type_name(value)}' cannot cross the host boundary",
         kind="ffi_error",
     )
@@ -1315,17 +1315,17 @@ def _to_host(value: object, budget: list[int], depth: int = 0) -> object:
 def _from_host(
     value: object, budget: list[int], max_string_bytes: int, depth: int = 0
 ) -> object:
-    """把宿主返回值校验并深拷贝为 mica 值；异物与巨型结构拒绝。"""
+    """把宿主返回值校验并深拷贝为 sericite 值；异物与巨型结构拒绝。"""
     budget[0] -= 1
     if budget[0] < 0:
-        raise MicaError("FFI result structure too large", kind="ffi_error")
+        raise SericiteError("FFI result structure too large", kind="ffi_error")
     if depth > 64:
-        raise MicaError("FFI result nested too deeply", kind="ffi_error")
+        raise SericiteError("FFI result nested too deeply", kind="ffi_error")
     if value is None or type(value) in (int, float, bool):
         return value
     if type(value) is str:
         if len(value) > max_string_bytes:
-            raise MicaError(
+            raise SericiteError(
                 "FFI result string too large", kind="ffi_error"
             )
         return value
@@ -1335,14 +1335,14 @@ def _from_host(
         result: dict[object, object] = {}
         for key, item in value.items():
             if type(key) not in (str, int, float, bool) and key is not None:
-                raise MicaError(
+                raise SericiteError(
                     f"FFI result has unhashable key of type "
                     f"'{type(key).__name__}'",
                     kind="ffi_error",
                 )
             result[key] = _from_host(item, budget, max_string_bytes, depth + 1)
         return result
-    raise MicaError(
+    raise SericiteError(
         f"host function returned unsupported type "
         f"'{type(value).__name__}'",
         kind="ffi_error",
@@ -1411,7 +1411,7 @@ def _equals(left: object, right: object) -> bool:
 def _contains(container: object, item: object) -> bool:
     if type(container) is dict:
         if type(item) not in (str, int, float, bool) and item is not None:
-            raise MicaError(
+            raise SericiteError(
                 f"unhashable key type: {_type_name(item)}",
                 kind="type_error",
             )
@@ -1420,7 +1420,7 @@ def _contains(container: object, item: object) -> bool:
         return any(_equals(element, item) for element in container)
     if type(container) is str and type(item) is str:
         return item in container
-    raise MicaError(
+    raise SericiteError(
         f"'in' not supported between {_type_name(item)} "
         f"and {_type_name(container)}",
         kind="type_error",
@@ -1442,15 +1442,15 @@ def _type_name(value: object) -> str:
         return "list"
     if type(value) is dict:
         return "dict"
-    if isinstance(value, MicaFunction):
+    if isinstance(value, SericiteFunction):
         return "function"
     if isinstance(value, VMHandle):
         return "VM"
     return type(value).__name__
 
 
-def _operand_error(op: str, left: object, right: object) -> MicaError:
-    return MicaError(
+def _operand_error(op: str, left: object, right: object) -> SericiteError:
+    return SericiteError(
         f"unsupported operand types for '{op}': "
         f"{_type_name(left)} and {_type_name(right)}",
         kind="type_error",

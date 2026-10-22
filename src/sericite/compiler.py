@@ -3,7 +3,7 @@ from __future__ import annotations
 import ast
 
 from . import isa
-from .errors import MicaError
+from .errors import SericiteError
 
 RESERVED_NAMES = {
     "input",
@@ -110,11 +110,11 @@ VM_METHODS = {
 
 def compile_source(source: object, filename: str) -> isa.CodeUnit:
     if not isinstance(source, str):
-        raise MicaError("VM source must be a string", filename=filename)
+        raise SericiteError("VM source must be a string", filename=filename)
     try:
         tree = ast.parse(source, filename=filename, mode="exec")
     except SyntaxError as exc:
-        raise MicaError(
+        raise SericiteError(
             exc.msg or "invalid syntax",
             kind="syntax_error",
             filename=filename,
@@ -122,13 +122,13 @@ def compile_source(source: object, filename: str) -> isa.CodeUnit:
             column=exc.offset,
         ) from None
     except RecursionError:
-        raise MicaError(
+        raise SericiteError(
             "source nesting too deep",
             kind="validation_error",
             filename=filename,
         ) from None
     except MemoryError:
-        raise MicaError(
+        raise SericiteError(
             "source too large to compile",
             kind="validation_error",
             filename=filename,
@@ -142,13 +142,13 @@ def compile_source(source: object, filename: str) -> isa.CodeUnit:
         compiler.emit(code, isa.RETURN, None, 0)
         _analyze_stack(code, filename)
     except RecursionError:
-        raise MicaError(
+        raise SericiteError(
             "source nesting too deep",
             kind="validation_error",
             filename=filename,
         ) from None
     except MemoryError:
-        raise MicaError(
+        raise SericiteError(
             "source too large to compile",
             kind="validation_error",
             filename=filename,
@@ -214,7 +214,7 @@ def _analyze_stack(code: isa.CodeUnit, filename: str) -> None:
             successors.append((i + 1, depth + delta))
         for target, target_depth in successors:
             if target >= len(instrs):
-                raise MicaError(
+                raise SericiteError(
                     "compiler produced a jump out of range",
                     kind="internal_error",
                     filename=filename,
@@ -223,7 +223,7 @@ def _analyze_stack(code: isa.CodeUnit, filename: str) -> None:
                 depths[target] = target_depth
                 worklist.append(target)
             elif depths[target] != target_depth:
-                raise MicaError(
+                raise SericiteError(
                     "compiler produced inconsistent stack depths",
                     kind="internal_error",
                     filename=filename,
@@ -327,7 +327,7 @@ def _validate(tree: ast.Module, filename: str) -> None:
 
 
 def _reject(node: ast.AST, filename: str, message: str) -> None:
-    raise MicaError(
+    raise SericiteError(
         message,
         kind="validation_error",
         filename=filename,
@@ -472,7 +472,7 @@ class _Compiler:
             return
         if isinstance(node, ast.Return):
             if self._function_depth == 0:
-                raise MicaError(
+                raise SericiteError(
                     "return outside function",
                     kind="validation_error",
                     filename=self._filename,
@@ -490,7 +490,7 @@ class _Compiler:
         if isinstance(node, ast.Try):
             self._compile_try(node, code)
             return
-        raise MicaError(
+        raise SericiteError(
             f"unsupported statement: {type(node).__name__}",
             kind="validation_error",
             filename=self._filename,
@@ -521,7 +521,7 @@ class _Compiler:
     def _compile_try(self, node: ast.Try, code: isa.CodeUnit) -> None:
         line = node.lineno
         if not node.handlers and not node.finalbody:
-            raise MicaError(
+            raise SericiteError(
                 "try requires at least one except or finally clause",
                 kind="validation_error",
                 filename=self._filename,
@@ -673,7 +673,7 @@ class _Compiler:
             else:
                 self.emit(code, isa.CALL, len(node.args), line)
             return
-        raise MicaError(
+        raise SericiteError(
             f"unsupported expression: {type(node).__name__}",
             kind="validation_error",
             filename=self._filename,
@@ -681,7 +681,7 @@ class _Compiler:
         )
 
     def _outside_loop(self, node: ast.stmt) -> None:
-        raise MicaError(
+        raise SericiteError(
             f"{type(node).__name__.lower()} outside loop",
             kind="validation_error",
             filename=self._filename,

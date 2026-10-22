@@ -1,10 +1,10 @@
 import unittest
 
-from mica import MicaEngine, MicaError, MicaLimits
+from sericite import SericiteEngine, SericiteError, SericiteLimits
 
 
 def run(source, inputs=None):
-    engine = MicaEngine()
+    engine = SericiteEngine()
     vm = engine.create_root(source)
     return vm.run(inputs)
 
@@ -28,15 +28,15 @@ class ArithmeticTests(unittest.TestCase):
         self.assertEqual(run('print("ab" + "cd")\n'), "abcd\n")
 
     def test_bool_not_a_number(self):
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             run("print(True + 1)\n")
         self.assertEqual(ctx.exception.kind, "type_error")
 
     def test_zero_division(self):
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             run("print(1 / 0)\n")
         self.assertEqual(ctx.exception.kind, "zero_division")
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             run("print(1 % 0)\n")
         self.assertEqual(ctx.exception.kind, "zero_division")
 
@@ -53,7 +53,7 @@ class CompareAndLogicTests(unittest.TestCase):
         self.assertEqual(run('print(1 == "1")\nprint(None == None)\n'), "False\nTrue\n")
 
     def test_cross_type_ordering_rejected(self):
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             run('print(1 < "2")\n')
         self.assertEqual(ctx.exception.kind, "type_error")
 
@@ -115,19 +115,19 @@ class ControlFlowTests(unittest.TestCase):
         self.assertEqual(run(source), "1\n3\n5\n")
 
     def test_break_outside_loop_rejected(self):
-        engine = MicaEngine()
-        with self.assertRaises(MicaError) as ctx:
+        engine = SericiteEngine()
+        with self.assertRaises(SericiteError) as ctx:
             engine.create_root("break\n")
         self.assertEqual(ctx.exception.kind, "validation_error")
 
     def test_return_outside_function_rejected(self):
-        engine = MicaEngine()
-        with self.assertRaises(MicaError) as ctx:
+        engine = SericiteEngine()
+        with self.assertRaises(SericiteError) as ctx:
             engine.create_root("return 1\n")
         self.assertEqual(ctx.exception.kind, "validation_error")
 
     def test_loop_stepping_is_per_statement(self):
-        engine = MicaEngine()
+        engine = SericiteEngine()
         source = "i = 0\nwhile i < 3:\n    i = i + 1\nprint(i)\n"
         vm = engine.create_root(source)
         seen_i = []
@@ -182,15 +182,15 @@ class FunctionTests(unittest.TestCase):
         self.assertEqual(run(source), "11\n")
 
     def test_arity_error(self):
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             run("def f(a, b):\n    return a\nprint(f(1))\n")
         self.assertEqual(ctx.exception.kind, "arity_error")
 
     def test_recursion_limit(self):
         source = "def f():\n    return f()\nf()\n"
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root(source)
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "resource_exhausted")
         self.assertEqual(vm.snapshot()["state"], "resource_exhausted")
@@ -212,12 +212,12 @@ class ListTests(unittest.TestCase):
         self.assertEqual(run('print("abc"[1])\n'), "b\n")
 
     def test_index_out_of_range(self):
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             run("x = [1]\nprint(x[5])\n")
         self.assertEqual(ctx.exception.kind, "index_error")
 
     def test_string_item_assignment_rejected(self):
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             run('x = "abc"\nx[0] = "z"\n')
         self.assertEqual(ctx.exception.kind, "type_error")
 
@@ -234,7 +234,7 @@ class BuiltinTests(unittest.TestCase):
         )
 
     def test_conversion_error(self):
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             run('print(int("abc"))\n')
         self.assertEqual(ctx.exception.kind, "conversion_error")
 
@@ -245,15 +245,15 @@ class BuiltinTests(unittest.TestCase):
         )
 
     def test_range_step_zero(self):
-        with self.assertRaises(MicaError):
+        with self.assertRaises(SericiteError):
             run("print(range(1, 5, 0))\n")
 
 
 class ResourceLimitTests(unittest.TestCase):
     def test_instruction_limit_kills_infinite_loop(self):
-        engine = MicaEngine(limits=MicaLimits(max_instructions=10_000))
+        engine = SericiteEngine(limits=SericiteLimits(max_instructions=10_000))
         vm = engine.create_root("while True:\n    x = 1\n")
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "resource_exhausted")
         snap = vm.snapshot()
@@ -261,45 +261,45 @@ class ResourceLimitTests(unittest.TestCase):
         self.assertEqual(snap["instruction_count"], 10_001)
 
     def test_output_limit(self):
-        limits = MicaLimits(max_output_bytes=10)
-        engine = MicaEngine(limits=limits)
+        limits = SericiteLimits(max_output_bytes=10)
+        engine = SericiteEngine(limits=limits)
         vm = engine.create_root('print("0123456789")\n')
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "resource_exhausted")
         self.assertEqual(vm.snapshot()["state"], "resource_exhausted")
 
     def test_list_size_limit_via_range(self):
-        limits = MicaLimits(max_list_size=100)
-        engine = MicaEngine(limits=limits)
+        limits = SericiteLimits(max_list_size=100)
+        engine = SericiteEngine(limits=limits)
         vm = engine.create_root("x = range(101)\n")
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "resource_exhausted")
 
     def test_child_vm_limit(self):
-        limits = MicaLimits(max_child_vms=1)
-        engine = MicaEngine(limits=limits)
+        limits = SericiteLimits(max_child_vms=1)
+        engine = SericiteEngine(limits=limits)
         vm = engine.create_root('a = VM("x = 1")\nb = VM("y = 2")\n')
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "resource_exhausted")
 
     def test_child_vm_shares_instruction_budget_independence(self):
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root('sub = VM("while True:\\n    x = 1")\nsub.run()\n')
-        with self.assertRaises(MicaError):
+        with self.assertRaises(SericiteError):
             vm.run()
         self.assertEqual(vm.snapshot()["state"], "resource_exhausted")
 
     def test_terminate(self):
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root('sub = VM("while True:\\n    x = 1")\nsub.step()\nsub.terminate()\nprint("stopped")\n')
         output = vm.run()
         self.assertEqual(output, "stopped\n")
 
     def test_instruction_count_visible_in_snapshot(self):
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root("x = 1\ny = 2\n")
         vm.run()
         self.assertGreater(vm.snapshot()["instruction_count"], 0)
@@ -307,9 +307,9 @@ class ResourceLimitTests(unittest.TestCase):
 
 class ErrorReportingTests(unittest.TestCase):
     def test_error_carries_line(self):
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root("x = 1\ny = missing\n")
-        with self.assertRaises(MicaError):
+        with self.assertRaises(SericiteError):
             vm.run()
         snap = vm.snapshot()
         self.assertEqual(snap["state"], "error")
@@ -317,14 +317,14 @@ class ErrorReportingTests(unittest.TestCase):
         self.assertEqual(snap["error"]["line"], 2)
 
     def test_error_line_inside_loop(self):
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root("i = 0\nwhile i < 3:\n    i = i + 1\n    x = 1 / 0\n")
-        with self.assertRaises(MicaError):
+        with self.assertRaises(SericiteError):
             vm.run()
         self.assertEqual(vm.snapshot()["error"]["line"], 4)
 
     def test_step_instruction_granularity(self):
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root("x = 1 + 2\n")
         count = 0
         while vm.snapshot()["state"] == "ready":

@@ -1,10 +1,10 @@
 import unittest
 
-from mica import MicaEngine, MicaError, MicaLimits
+from sericite import SericiteEngine, SericiteError, SericiteLimits
 
 
 def run(source, inputs=None, limits=None):
-    engine = MicaEngine(limits=limits)
+    engine = SericiteEngine(limits=limits)
     vm = engine.create_root(source)
     return vm.run(inputs)
 
@@ -42,11 +42,11 @@ class TryExceptTests(unittest.TestCase):
         self.assertEqual(run(source), "caught\n")
 
     def test_non_matching_kind_propagates(self):
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root(
             "try:\n    x = missing\nexcept zero_division:\n    y = 1\n"
         )
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "name_error")
 
@@ -88,7 +88,7 @@ class TryExceptTests(unittest.TestCase):
         self.assertEqual(run(source), "out\n")
 
     def test_resource_exhausted_not_catchable(self):
-        limits = MicaLimits(max_instructions=500)
+        limits = SericiteLimits(max_instructions=500)
         source = (
             "try:\n"
             "    while True:\n"
@@ -96,9 +96,9 @@ class TryExceptTests(unittest.TestCase):
             "except resource_exhausted:\n"
             '    print("must not happen")\n'
         )
-        engine = MicaEngine(limits=limits)
+        engine = SericiteEngine(limits=limits)
         vm = engine.create_root(source)
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "resource_exhausted")
         self.assertNotIn("must not happen", vm.stdout())
@@ -140,12 +140,12 @@ class KeywordCallTests(unittest.TestCase):
         self.assertEqual(run(source), "4\n4\n")
 
     def test_unknown_kwarg(self):
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             run("def f(a):\n    return a\nf(b=1)\n")
         self.assertEqual(ctx.exception.kind, "arity_error")
 
     def test_duplicate_argument(self):
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             run("def f(a):\n    return a\nf(1, a=2)\n")
         self.assertEqual(ctx.exception.kind, "arity_error")
 
@@ -156,21 +156,21 @@ class NestedVMTests(unittest.TestCase):
             'sub = VM("while True:\\n    x = 1", max_instructions=100)\n'
             "sub.run()\n"
         )
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root(source)
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "resource_exhausted")
 
     def test_vm_config_clamped_to_parent(self):
-        limits = MicaLimits(max_instructions=300)
+        limits = SericiteLimits(max_instructions=300)
         source = (
             'sub = VM("while True:\\n    x = 1", max_instructions=999999)\n'
             "sub.run()\n"
         )
-        engine = MicaEngine(limits=limits)
+        engine = SericiteEngine(limits=limits)
         vm = engine.create_root(source)
-        with self.assertRaises(MicaError):
+        with self.assertRaises(SericiteError):
             vm.run()
         sub_handle = None
         for value in engine._contexts.values():
@@ -180,25 +180,25 @@ class NestedVMTests(unittest.TestCase):
         self.assertLessEqual(sub_handle.instruction_count, 301)
 
     def test_unknown_vm_option(self):
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             run('sub = VM("x = 1", nope=1)\n')
         self.assertEqual(ctx.exception.kind, "type_error")
 
     def test_vm_depth_limit(self):
-        limits = MicaLimits(max_vm_depth=2)
+        limits = SericiteLimits(max_vm_depth=2)
         level3 = "x = 1"
         level2 = f"sub = VM({level3!r})\nsub.run()"
         level1 = f"sub = VM({level2!r})\nsub.run()"
         source = f"sub = VM({level1!r})\nsub.run()\n"
-        engine = MicaEngine(limits=limits)
+        engine = SericiteEngine(limits=limits)
         vm = engine.create_root(source)
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "resource_exhausted")
 
     def test_ancestor_instruction_charging(self):
         child_src = "i = 0\nwhile i < 20:\n    i = i + 1\nprint(i)\n"
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root(f"sub = VM({child_src!r})\nprint(sub.run())\n")
         vm.run()
         child = next(c for c in engine._contexts.values() if c.parent_id == 0)
@@ -272,23 +272,23 @@ class VFSTests(unittest.TestCase):
         self.assertEqual(run(source), "is dir\nis dir 2\nnot dir\n")
 
     def test_file_count_limit(self):
-        limits = MicaLimits(max_fs_files=2)
+        limits = SericiteLimits(max_fs_files=2)
         source = (
             'write_file("/a", "1")\n'
             'write_file("/b", "2")\n'
             'write_file("/c", "3")\n'
         )
-        engine = MicaEngine(limits=limits)
+        engine = SericiteEngine(limits=limits)
         vm = engine.create_root(source)
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "resource_exhausted")
 
     def test_file_size_limit(self):
-        limits = MicaLimits(max_fs_file_bytes=5)
-        engine = MicaEngine(limits=limits)
+        limits = SericiteLimits(max_fs_file_bytes=5)
+        engine = SericiteEngine(limits=limits)
         vm = engine.create_root('write_file("/a", "123456")\n')
-        with self.assertRaises(MicaError) as ctx:
+        with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "resource_exhausted")
 
@@ -298,7 +298,7 @@ class VFSTests(unittest.TestCase):
             'sub = VM("print(path_exists(\\"/secret.txt\\"))")\n'
             "sub.run()\n"
         )
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root(source)
         vm.run()
         child = next(c for c in engine._contexts.values() if c.parent_id == 0)
@@ -321,7 +321,7 @@ class VFSTests(unittest.TestCase):
         self.assertEqual(run(source), "done\n")
 
     def test_host_presets_and_inspects(self):
-        engine = MicaEngine()
+        engine = SericiteEngine()
         vm = engine.create_root(
             "content = read_file(\"/input.txt\")\n"
             "write_file(\"/output.txt\", content + \"!\")\n"

@@ -1,10 +1,10 @@
-# Mica Design Notes
+# Sericite Design Notes
 
-This document explains what Mica is, why it exists, and where its design boundaries are drawn. For the language itself see the [language reference](language-reference.md); for the engine's internal structure and current implementation status see the architecture notes ([中文](architecture.zh-CN.md)).
+This document explains what Sericite is, why it exists, and where its design boundaries are drawn. For the language itself see the [language reference](language-reference.md); for the engine's internal structure and current implementation status see the architecture notes ([中文](architecture.zh-CN.md)).
 
-## 1. What Mica is
+## 1. What Sericite is
 
-Mica is a scripting language, together with its execution engine. Its syntax borrows a subset of Python (it reads like Python), but source code is compiled into Mica's own instruction stream and executed instruction by instruction by the Mica engine — never through the host's `exec`/`eval`. (The *host* is the program running the Mica engine.)
+Sericite is a scripting language, together with its execution engine. Its syntax borrows a subset of Python (it reads like Python), but source code is compiled into Sericite's own instruction stream and executed instruction by instruction by the Sericite engine — never through the host's `exec`/`eval`. (The *host* is the program running the Sericite engine.)
 
 The language exists for exactly one reason: **to create fully isolated runtime environments, at very low cost, within the language's own domain — and to nest them arbitrarily.**
 
@@ -24,17 +24,19 @@ Process-level isolation looks sufficient, but has two fundamental problems.
 
 **Second, kernel-space solutions are not light enough, and history has long shown user space is cheaper.** Recall the evolution of concurrency: why threads when we had processes? Because creating processes is expensive, passing data between them is expensive, everything is expensive. Why coroutines when we had threads? Because thread switching still traps into the kernel, and when the internet brought thousands of concurrent tasks, that was still too expensive. Every step in this evolution goes the same way: **whatever can be solved in user space should not be pushed to the kernel; do not treat the OS — an overworked, hole-ridden butler — as an omnipotent nanny.**
 
-One more step in this direction is where Mica sits: **virtualization implemented entirely in user space, inside the language itself.** Creating a child VM in Mica should feel as cheap as creating a sub-table in Lua. Isolation no longer depends on emulating hardware, booting containers, or requesting processes — it is a built-in capability of the language runtime.
+One more step in this direction is where Sericite sits: **virtualization implemented entirely in user space, inside the language itself.** Creating a child VM in Sericite should feel as cheap as creating a sub-table in Lua. Isolation no longer depends on emulating hardware, booting containers, or requesting processes — it is a built-in capability of the language runtime.
 
-You might ask: why not WASM runtimes, microVM sandboxes, gVisor, or embedded scripting sandboxes like Starlark? Each is valid in its own scenario, but none sits at the point of "the language's own domain": they either pull in a heavy external runtime, or the isolation boundary is granted by outside facilities, or the language itself does not treat "creating an isolated world" as a first-class concept. What Mica sets out to validate is what it looks like when this is a built-in language capability.
+You might ask: hasn't this been done? The honest answer is yes — once, almost exactly — and that precedent is the strongest evidence that the idea is sound. Tcl has had safe interpreters as a language built-in since Tcl 7.5 (1996), descending from Borenstein and Rose's 1992 Safe-Tcl prototype built for "active email" — code arriving over a channel to be executed locally, the same problem shape that LLM tool calls recreate today. A safe interpreter starts with unsafe commands disabled; the master grants mediated capabilities back through aliases; safe interpreters can create their own children, forming a hierarchy. Isolation as a first-class, nestable language operation with explicit capability granting is a thirty-year-old validated mechanism, not a new speculation.
 
-Why insist on *arbitrary nesting* rather than one layer? Because the need for isolation is recursive: your program receives an untrusted script and runs it in isolation — and that script, once running, needs to execute code it obtained dynamically. Untrustworthiness in the real world is passed down layer by layer; the isolation mechanism should be able to follow it, not just guard the front gate.
+But Safe-Tcl stopped halfway, and said so itself: its 1998 security-model paper admits "Safe-Tcl currently does not prevent most denial-of-service attacks", promising future "resource controls and a kill-key". Tcl only gained per-interpreter resource limits in 8.5 (TIP 143) — wall-clock time and command count only, no memory or output accounting, nothing charged to ancestors — and the kill-key arrived in 8.6 (`interp cancel`). Sericite's position in this lineage is precise: keep the validated core (zero capabilities by default, explicit granting, recursive nesting), and supply the missing half — the quota tree, and the child VM as an inspectable object (stepping, snapshots, termination). WASM runtimes, microVM sandboxes, gVisor, and Starlark each solve adjacent points on the cost spectrum, but none of them makes "creating an isolated world" a statement-level capability of the language itself with resource governance built into the nesting relation. See [prior art and related work](prior-art.md) for the full comparison.
+
+Why insist on *arbitrary nesting* rather than one layer? Because the need for isolation is recursive: your program receives an untrusted script and runs it in isolation — and that script, once running, needs to execute code it obtained dynasericitelly. Untrustworthiness in the real world is passed down layer by layer; the isolation mechanism should be able to follow it, not just guard the front gate.
 
 ## 3. Core ideas
 
 ### 3.1 Minimal, lightweight, complete runtime isolation
 
-A Mica VM has no permissions by default. Built-in capabilities are deliberately compressed to very few:
+A Sericite VM has no permissions by default. Built-in capabilities are deliberately compressed to very few:
 
 - Basic input/output (each VM has its own virtual IO);
 - A purely in-memory virtual filesystem (text only; physically unable to touch the real disk);
@@ -56,40 +58,40 @@ This mechanism is already working in the prototype: the host injects Python func
 
 This design splits security responsibility into two clearly bounded halves:
 
-- **The engine is responsible for isolation itself holding.** A child VM cannot read or write parent variables or files, cannot tell how deep it is nested, cannot reach host objects or reflection entry points, and cannot bypass resource quotas. That is Mica's design promise.
+- **The engine is responsible for isolation itself holding.** A child VM cannot read or write parent variables or files, cannot tell how deep it is nested, cannot reach host objects or reflection entry points, and cannot bypass resource quotas. That is Sericite's design promise.
 - **The capability's implementer is responsible for the capability's safety.** If you grant a VM a function via FFI, whether that function is safe inside is on you. The engine's philosophy is to keep the kernel minimal — at least not to bury landmines inside itself.
 
-## 4. Mica's relationship with LLMs
+## 4. Sericite's relationship with LLMs
 
-A common misreading must be corrected: **Mica is not "a tool for LLMs".**
+A common misreading must be corrected: **Sericite is not "a tool for LLMs".**
 
-The real relationship is this: LLM applications are Mica's most direct and realistic current driver — when a system must dynamically face hundreds or thousands of generated scripts, all of which must run in isolation, "cheap, nestable isolation" goes from nice-to-have to hard requirement. Mica was born of this era's demand.
+The real relationship is this: LLM applications are Sericite's most direct and realistic current driver — when a system must dynasericitelly face hundreds or thousands of generated scripts, all of which must run in isolation, "cheap, nestable isolation" goes from nice-to-have to hard requirement. Sericite was born of this era's demand.
 
-But the relationship is one-directional: **the scenario chose Mica; Mica's design is not coupled to the scenario.** The Mica engine does not know what an LLM is, has no LLM-related built-ins, and does not depend on any model service in any form; without the LLM scenario, the proposition of "cheap, nestable, user-space isolation" still stands. You can, at the application layer, hang the Mica engine behind a tool like `mica_exec` on some LLM service's tool list — the engine itself does not care how you use it.
+But the relationship is one-directional: **the scenario chose Sericite; Sericite's design is not coupled to the scenario.** The Sericite engine does not know what an LLM is, has no LLM-related built-ins, and does not depend on any model service in any form; without the LLM scenario, the proposition of "cheap, nestable, user-space isolation" still stands. You can, at the application layer, hang the Sericite engine behind a tool like `sericite_exec` on some LLM service's tool list — the engine itself does not care how you use it.
 
 ## 5. Prototype vs. design: distinguishing "where we are going" from "where we are"
 
 When reading this project, always separate two levels:
 
 - **Design**: the goals and boundaries described in sections 1–4 above. This is where the project is going.
-- **Prototype**: the code in the repository is the reference implementation (codename Mica-PY), written in Python. It is a work-in-progress draft, meant to answer "once this design lands, what does the syntax and usage actually look like" — to fix the language's blueprint.
+- **Prototype**: the code in the repository is the reference implementation (codename Sericite-PY), written in Python. It is a work-in-progress draft, meant to answer "once this design lands, what does the syntax and usage actually look like" — to fix the language's blueprint.
 
 So "the prototype is currently incomplete" and "whether the design holds" are two different things. Missing features will be added; the prototype's implementation limits (for example, it currently runs in the host's process) are the state of construction, not a retreat from the design.
 
 The same distinction applies to "cost": the claim in section 2 that "creating a child VM should be as cheap as creating a table" is a design goal and direction of effort. The current Python prototype has no performance benchmark yet; how cheap it actually is remains to be measured, not a proven fact.
 
-As for the future release form — whether the engine base stays in Python or migrates to another language to produce a standalone binary runtime (say, a `mica` executable) — no conclusion for now. Preliminary judgment: Python as a base is not bad; even if a migration happens later, the functional shape stays roughly the same: Mica's built-ins are few, and everything else is injected in cooperation with other languages. Either way, a complete prototype must exist as the blueprint before rebuilding it on another base.
+As for the future release form — whether the engine base stays in Python or migrates to another language to produce a standalone binary runtime (say, a `sericite` executable) — no conclusion for now. Preliminary judgment: Python as a base is not bad; even if a migration happens later, the functional shape stays roughly the same: Sericite's built-ins are few, and everything else is injected in cooperation with other languages. Either way, a complete prototype must exist as the blueprint before rebuilding it on another base.
 
 ## 6. Why the name
 
-Mica (云母) is a layered mineral. The name was chosen because it states three of the language's design promises: layering, insulation, lightness.
+Sericite (绢云母) is the finest-grained member of the mica family: thin silky scales that stack into sheets, every sheet still a complete layer, and an insulator like every mica. The name states three of the language's design promises: layering, insulation, lightness.
 
-- **Layering**: mica cleaves along its planes into thinner and thinner sheets, and every sheet is still a complete layer. This mirrors the goal of nested virtualization.
-- **Insulation**: mica is an electrical insulator; layers do not conduct into each other. This mirrors the goal of isolation.
-- **Lightness**: mica sheets are light and transparent. This mirrors the goals of "very low cost" and "imperceptible nesting".
+- **Layering**: sericite scales stack sheet upon sheet, and every sheet is still a complete layer. This mirrors the goal of nested virtualization.
+- **Insulation**: like every mica, sericite is an electrical insulator; layers do not conduct into each other. This mirrors the goal of isolation.
+- **Lightness**: the finest scales of the mica family — light and transparent. This mirrors the goals of "very low cost" and "imperceptible nesting".
 
-A note: "Mica" is not a vacant name in public. Windows has a UI material called Mica, PyPI has a bioinformatics tool of the same name, and GitHub has an inactive Rust scripting language of the same name — none of them are related to this project. This project's public identifier is **MicaLang**; the repository and package name is `micalang`.
+A note: the project was briefly named Mica/MicaLang. It was renamed after discovering the name was occupied multiple times over, including an actively developed commercial language publishing Docker images under the `micalang` namespace. The repository and package name is `sericite`.
 
 ## 7. One-sentence summary
 
-Mica borrows Python's syntax shell to do something Python cannot: **make "creating a fully isolated universe" an ordinary script statement, cheap enough to use casually, nestable layer upon layer, with layers unaware of each other.** It is a language whose central proposition is "user-space virtualization", not an accessory tool for LLMs — the LLM era merely made the problem it solves more conspicuous.
+Sericite borrows Python's syntax shell to do something Python cannot: **make "creating a fully isolated universe" an ordinary script statement, cheap enough to use casually, nestable layer upon layer, with layers unaware of each other.** It is a language whose central proposition is "user-space virtualization", not an accessory tool for LLMs — the LLM era merely made the problem it solves more conspicuous.
