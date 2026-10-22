@@ -1,8 +1,42 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "micalang"
-version = "0.1.0"
+dynamic = ["version"]
+description = "Mica: a scripting language with cheap, arbitrarily nested VM isolation"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.12"
+authors = [{ name = "LeoLoudWarden" }]
+keywords = ["language", "interpreter", "virtual-machine", "sandbox", "isolation", "scripting-language"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Software Development :: Interpreters",
+]
 dependencies = []
 
 [project.optional-dependencies]
 demo = ["requests", "python-dotenv"]
+
+[project.scripts]
+micalang = "mica.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/LeoLoudWarden/micalang"
+Repository = "https://github.com/LeoLoudWarden/micalang"
+Issues = "https://github.com/LeoLoudWarden/micalang/issues"
+Changelog = "https://github.com/LeoLoudWarden/micalang/blob/main/CHANGELOG.md"
+
+[tool.hatch.version]
+path = "src/mica/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mica"]

@@ -25,7 +25,7 @@ from pathlib import Path
 
 import requests
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from mica import MicaEngine, MicaError, MicaLimits  # noqa: E402
 

@@ -12,8 +12,11 @@ English readers: this project's development workflow is currently documented in 
 修改引擎、编译器或脚本接口后，必须先运行回归套件：
 
 ```bash
-python -m unittest discover -s tests
+uv sync
+uv run python -m unittest discover -s tests
 ```
+
+仓库采用 `src/` 布局，直接运行 `python -m unittest` 前需要先安装本项目（`uv sync` 会自动处理）。
 
 ## 设计纪律
 

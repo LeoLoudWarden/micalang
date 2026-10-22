@@ -3,6 +3,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from . import __version__
 from .engine import MicaEngine, MicaError
 
 
@@ -12,7 +13,11 @@ def _read_stdin() -> str | None:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="mica", description="Mica-PY prototype")
+    parser = argparse.ArgumentParser(
+        prog="micalang",
+        description="Mica language runtime (Mica-PY reference implementation)",
+    )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("source", help="Mica source file")
     args = parser.parse_args(argv)
     try:
