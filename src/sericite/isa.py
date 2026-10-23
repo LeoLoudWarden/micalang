@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 LOAD_CONST = "LOAD_CONST"
 LOAD_NAME = "LOAD_NAME"
 STORE_NAME = "STORE_NAME"
+LOAD_DEREF = "LOAD_DEREF"
+STORE_DEREF = "STORE_DEREF"
 DUP = "DUP"
 POP = "POP"
 BUILD_LIST = "BUILD_LIST"
@@ -53,5 +55,8 @@ class Handler:
 class CodeUnit:
     name: str
     params: list[str]
+    local_names: tuple[str, ...] = ()
+    cell_names: tuple[str, ...] = ()
+    free_names: tuple[str, ...] = ()
     instrs: list[Instr] = field(default_factory=list)
     handlers: list[Handler] = field(default_factory=list)

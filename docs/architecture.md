@@ -38,7 +38,7 @@ Anyone modifying the engine must preserve the following invariants (numbered for
 10. `resource_exhausted` and `internal_error` must not be catchable by script `try/except` — quotas must not be swallowed by scripts.
 11. The VM-handle method whitelist has exactly one source (defined on the compiler side); the engine references it, and the two sides must not diverge.
 12. The host boundary (FFI) must deep-copy in both directions with a type whitelist (None/bool/int/float/str/list/dict, recursive): handles, functions, and host-native objects must never cross; host exceptions must be sanitized into `ffi_error`, with messages containing only the host exception's type name, not its text (to prevent leaking host paths or internal information). Functions granted between VMs are passed by reference within the same engine trust domain, not copied.
-13. A granted sericite function executes on the **calling VM's frame stack** (instructions charged to the caller and its ancestors), but resolves globals to the **defining VM's module variables**; the reverse or cross combinations are not allowed.
+13. A granted sericite function executes on the **calling VM's frame stack** (instructions charged to the caller and its ancestors), but retains the **defining function's closure cells and defining VM's module variables**; the reverse or cross combinations are not allowed. Re-granting must preserve both environments.
 14. Every resource that can grow must have a quota (see next section). `run()` does not take per-statement snapshots — snapshots are only produced on explicit `step()/snapshot()` calls; the debugging path must not become a resource bypass. Host `RecursionError` is always converted to `resource_exhausted`, `OverflowError` to `conversion_error`; host exceptions must never leak to scripts or callers in native form. O(n)-and-above operations must be charged against the instruction quota at a scale-proportional rate, and newly created objects must be accounted.
 15. The dispatch entry has re-entrancy protection: the same VM must not be driven by two dispatch loops at once (e.g. the host calling `step()` on the same VM from inside an `input_provider`/FFI callback).
 
@@ -68,6 +68,7 @@ Rules:
 - A child VM inherits its parent's quotas by default; `VM()` arguments can only tighten them.
 - Total source length has a fixed cap of 4MB (in UTF-8 bytes).
 - Besides instruction count, bulk operations (container comparison/membership, concatenation, serialization, compiling child-VM source, VM-method return values) are charged to `instruction_count` at a scale-proportional rate.
+- Closure cells and captured environments are charged to `max_total_bytes`; snapshots expose their user-visible values rather than internal cell objects.
 - A child VM's instruction and memory consumption is charged to all ancestors; exceeding the quota at any ring of the ancestor chain fails.
 
 ## 6. Measured performance
@@ -88,13 +89,13 @@ The instruction figure is a workload-weighted average, not a uniform per-opcode 
 
 - Built-in types: int, float, str, bool, None, list, dict; operators, comparisons, membership, short-circuit logic.
 - Control flow: `if/elif/else`, `while`, `for`, `break/continue`, `try/except/else/finally`, `raise`, ternary expressions.
-- Functions: definitions, recursion, positional and keyword arguments, default arguments, independent call frames.
+- Functions: definitions, recursion, positional and keyword arguments, default arguments, independent call frames, lexical closures with by-reference capture.
 - VMs within VMs: any layer can create child VMs; a child cannot tell its depth; the parent can preset files, feed input, single-step (statement- and instruction-level), snapshot, and terminate.
 - Capability granting (FFI): the host injects functions into the root VM; any layer can grant functions to the next layer down; bidirectional deep copy across the host boundary with a pure-data type whitelist.
 - Resource governance: see the previous section. The prototype went through one round of adversarial security review (including an independent third-party perspective); all discovered denial-of-service and information-leak paths were fixed and locked in with regression tests.
 - Every VM has its own private virtual filesystem, configurable before the run and harvestable after.
 
-Deliberate trade-offs: list/dict methods, closures, variadic arguments, chained comparisons, `import`/`class` are not yet supported — these are usability or expressiveness matters, to be added on demand; they do not affect the design's main line.
+Deliberate trade-offs: list/dict methods, variadic arguments, chained comparisons, `import`/`class` are not yet supported — these are usability or expressiveness matters, to be added on demand; they do not affect the design's main line.
 
 ## 8. Known limits and semantic deviations
 
@@ -107,4 +108,4 @@ Deliberate trade-offs: list/dict methods, closures, variadic arguments, chained 
 
 ## 9. Explicitly not supported yet
 
-List/dict/string methods, closures, variadic/keyword-only parameters, `**` unpacking, chained comparisons, slicing, tuples, f-strings, `import`, `del`, `class`.
+List/dict/string methods, variadic/keyword-only parameters, `**` unpacking, chained comparisons, slicing, tuples, f-strings, `import`, `del`, `class`.

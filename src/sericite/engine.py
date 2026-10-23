@@ -47,20 +47,40 @@ class SericiteLimits:
     max_fs_file_bytes: int = 1_048_576
 
 
+_UNBOUND = object()
+
+
+class _Cell:
+    __slots__ = ("value",)
+
+    def __init__(self) -> None:
+        self.value = _UNBOUND
+
+
 @dataclass
 class Frame:
     code: isa.CodeUnit
     pc: int = 0
     stack: list[object] = field(default_factory=list)
     locals: dict[str, object] = field(default_factory=dict)
+    cells: dict[str, _Cell] = field(default_factory=dict)
+    closure: dict[str, _Cell] = field(default_factory=dict)
     module_locals: dict[str, object] | None = None
     active_error: SericiteError | None = None
 
 
 class SericiteFunction:
-    def __init__(self, code: isa.CodeUnit, defaults: tuple[object, ...] = ()) -> None:
+    def __init__(
+        self,
+        code: isa.CodeUnit,
+        defaults: tuple[object, ...],
+        closure: dict[str, _Cell],
+        module_locals: dict[str, object],
+    ) -> None:
         self.code = code
         self.defaults = defaults
+        self.closure = closure
+        self.module_locals = module_locals
 
     def __repr__(self) -> str:
         return f"<function {self.code.name}>"
@@ -105,11 +125,12 @@ class _GrantedHostFunction:
 
 @dataclass(frozen=True)
 class _GrantedSericiteFunction:
-    """父 VM 授予的 sericite 函数：在被授予 VM 的帧栈上执行，但解析定义方的模块全局。"""
+    """父 VM 授予的函数：在调用方帧栈执行，保留定义方闭包与模块全局。"""
 
     name: str
     code: isa.CodeUnit
     module_locals: dict[str, object]
+    closure: dict[str, _Cell]
     defaults: tuple[object, ...] = ()
 
     def __repr__(self) -> str:
@@ -428,9 +449,9 @@ class SericiteEngine:
             del frame.stack[handler.stack_depth :]
             frame.active_error = error
             if handler.error_name is not None:
-                frame.locals[handler.error_name] = error
+                self._store_local(frame, handler.error_name, error)
             if handler.bind is not None:
-                frame.locals[handler.bind] = error.message
+                self._store_local(frame, handler.bind, error.message)
             frame.pc = handler.target
             return True
         return False
@@ -472,6 +493,10 @@ class SericiteEngine:
             stack.append(self._load_name(context, frame, arg))
         elif op == isa.STORE_NAME:
             frame.locals[arg] = stack.pop()
+        elif op == isa.LOAD_DEREF:
+            stack.append(self._load_deref(frame, arg))
+        elif op == isa.STORE_DEREF:
+            self._cell(frame, arg).value = stack.pop()
         elif op == isa.DUP:
             stack.append(stack[-1])
         elif op == isa.POP:
@@ -554,7 +579,16 @@ class SericiteEngine:
             )
             if defaults_count:
                 del stack[len(stack) - defaults_count :]
-            stack.append(SericiteFunction(code, defaults))
+            closure = {name: self._cell(frame, name) for name in code.free_names}
+            module_locals = (
+                frame.module_locals
+                if frame.module_locals is not None
+                else context.frames[0].locals
+            )
+            self._charge_alloc(context, len(closure) * 8)
+            stack.append(
+                SericiteFunction(code, defaults, closure, module_locals)
+            )
         elif op == isa.GET_ITER:
             iterator = _make_iterator(stack.pop())
             self._charge_alloc(context, len(iterator.items) * 8)
@@ -627,7 +661,15 @@ class SericiteEngine:
                 )
             del stack[base - 1 :]
             frame.pc += 1
-            context.frames.append(Frame(code=code, locals=locals_))
+            context.frames.append(
+                self._new_frame(
+                    context,
+                    code,
+                    locals_,
+                    function.module_locals,
+                    function.closure,
+                )
+            )
             return
         if isinstance(function, _NativeFunction):
             try:
@@ -690,14 +732,37 @@ class SericiteEngine:
             del stack[base - 1 :]
             frame.pc += 1
             context.frames.append(
-                Frame(
-                    code=code,
-                    locals=locals_,
-                    module_locals=function.module_locals,
+                self._new_frame(
+                    context,
+                    code,
+                    locals_,
+                    function.module_locals,
+                    function.closure,
                 )
             )
             return
         raise SericiteError("value is not callable", kind="type_error")
+
+    def _new_frame(
+        self,
+        context: VMContext,
+        code: isa.CodeUnit,
+        locals_: dict[str, object],
+        module_locals: dict[str, object],
+        closure: dict[str, _Cell],
+    ) -> Frame:
+        cells = {name: _Cell() for name in code.cell_names}
+        for name, cell in cells.items():
+            if name in locals_:
+                cell.value = locals_.pop(name)
+        self._charge_alloc(context, len(cells) * 8)
+        return Frame(
+            code=code,
+            locals=locals_,
+            cells=cells,
+            closure=closure,
+            module_locals=module_locals,
+        )
 
     def _bind_arguments(
         self,
@@ -739,9 +804,30 @@ class SericiteEngine:
             )
         return locals_
 
+    def _store_local(self, frame: Frame, name: str, value: object) -> None:
+        if name in frame.cells:
+            frame.cells[name].value = value
+        else:
+            frame.locals[name] = value
+
+    def _cell(self, frame: Frame, name: str) -> _Cell:
+        if name in frame.cells:
+            return frame.cells[name]
+        if name in frame.closure:
+            return frame.closure[name]
+        raise SericiteError("missing closure cell", kind="internal_error")
+
+    def _load_deref(self, frame: Frame, name: str) -> object:
+        value = self._cell(frame, name).value
+        if value is _UNBOUND:
+            raise SericiteError(f"name '{name}' is not defined", kind="name_error")
+        return value
+
     def _load_name(self, context: VMContext, frame: Frame, name: str) -> object:
         if name in frame.locals:
             return frame.locals[name]
+        if frame.code.name != "<module>" and name in frame.code.local_names:
+            raise SericiteError(f"name '{name}' is not defined", kind="name_error")
         module_locals = (
             frame.module_locals
             if frame.module_locals is not None
@@ -858,13 +944,21 @@ class SericiteEngine:
             _check_grant_name(name)
             if isinstance(value, SericiteFunction):
                 granted[name] = _GrantedSericiteFunction(
-                    name, value.code, parent.frames[0].locals, value.defaults
+                    name,
+                    value.code,
+                    value.module_locals,
+                    value.closure,
+                    value.defaults,
                 )
             elif isinstance(value, _GrantedHostFunction):
                 granted[name] = _GrantedHostFunction(name, value.callback)
             elif isinstance(value, _GrantedSericiteFunction):
                 granted[name] = _GrantedSericiteFunction(
-                    name, value.code, value.module_locals, value.defaults
+                    name,
+                    value.code,
+                    value.module_locals,
+                    value.closure,
+                    value.defaults,
                 )
             else:
                 raise SericiteError(
@@ -1214,9 +1308,14 @@ class SericiteEngine:
                 next_line = frame.code.instrs[frame.pc].line
         locals_: dict[str, object] = {}
         if context.frames:
+            frame = context.frames[-1]
+            visible = dict(frame.locals)
+            for name, cell in frame.cells.items():
+                if cell.value is not _UNBOUND:
+                    visible[name] = cell.value
             locals_ = {
                 name: self._safe_value(value)
-                for name, value in context.frames[-1].locals.items()
+                for name, value in visible.items()
                 if not name.startswith("$")
             }
         error = None

@@ -80,7 +80,25 @@ def fib(n):                 # recursion is legal
     return fib(n - 1) + fib(n - 2)
 ```
 
-Not supported: variadic arguments (`*args`), keyword-only parameters, closures (a function cannot capture locals from its definition site; it can only read module-level globals).
+Nested functions use lexical scope and capture outer function locals by reference. A closure reads the latest binding when it is called, not a snapshot from its definition:
+
+```python
+def make_reader():
+    x = 1
+    def read():
+        return x
+    x = 2
+    return read
+
+reader = make_reader()
+print(reader())             # 2
+```
+
+Closures created by the same outer call share captured variables; separate outer calls have independent environments. A `for` loop does not create a fresh variable per iteration, so closures created in a loop share its final binding. Use a default argument such as `def read(value=x): ...` when a definition-time snapshot is wanted.
+
+Assigning a name anywhere in a function makes it local throughout that function. An inner assignment therefore shadows rather than modifies the outer binding; `nonlocal` and `global` are not supported. Module globals are still resolved from the defining module rather than copied into the closure.
+
+Not supported: variadic arguments (`*args`), keyword-only parameters, decorators.
 
 ## 5. Exceptions
 
@@ -143,7 +161,7 @@ sub.run()                        # prints 42
 
 ## 8. Explicitly not writable (rejected at compile time)
 
-`import`, `class`, `del`, list/dict/string methods, closures, `*args/**kwargs`, chained comparisons, slicing, tuples, f-strings, dunder names, attribute access (except the whitelisted VM handle methods).
+`import`, `class`, `del`, list/dict/string methods, decorators, `*args/**kwargs`, chained comparisons, slicing, tuples, f-strings, dunder names, attribute access (except the whitelisted VM handle methods).
 
 ## 9. A complete example
 

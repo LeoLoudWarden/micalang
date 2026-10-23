@@ -108,6 +108,94 @@ VM_METHODS = {
 }
 
 
+class _Scope:
+    def __init__(
+        self, node: ast.AST, code: isa.CodeUnit, parent: _Scope | None
+    ) -> None:
+        self.node = node
+        self.code = code
+        self.parent = parent
+        self.children: list[_Scope] = []
+        self.bound: dict[str, None] = {}
+        self.loaded: dict[str, None] = {}
+        self.cells: dict[str, None] = {}
+        self.free: dict[str, None] = {}
+
+    def capture(self, name: str) -> bool:
+        if self.parent is None:
+            return False
+        if name in self.bound:
+            self.cells[name] = None
+            return True
+        if self.parent.capture(name):
+            self.free[name] = None
+            return True
+        return False
+
+
+class _ScopeCollector(ast.NodeVisitor):
+    def __init__(self, scope: _Scope) -> None:
+        self.scope = scope
+
+    def visit_Name(self, node: ast.Name) -> None:
+        names = (
+            self.scope.bound
+            if isinstance(node.ctx, ast.Store)
+            else self.scope.loaded
+        )
+        names[node.id] = None
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self.scope.bound[node.name] = None
+        for default in node.args.defaults:
+            self.visit(default)
+        params = [argument.arg for argument in node.args.args]
+        child = _Scope(
+            node,
+            isa.CodeUnit(name=node.name, params=params),
+            self.scope,
+        )
+        self.scope.children.append(child)
+        collector = _ScopeCollector(child)
+        for param in params:
+            child.bound[param] = None
+        for statement in node.body:
+            collector.visit(statement)
+
+    def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
+        if node.name is not None:
+            self.scope.bound[node.name] = None
+        for statement in node.body:
+            self.visit(statement)
+
+
+def _analyze_scopes(
+    tree: ast.Module, code: isa.CodeUnit
+) -> dict[int, _Scope]:
+    root = _Scope(tree, code, None)
+    _ScopeCollector(root).visit(tree)
+    scopes = [root]
+    while scopes:
+        scope = scopes.pop()
+        if scope.parent is not None:
+            for name in scope.loaded:
+                if name not in scope.bound and scope.parent.capture(name):
+                    scope.free[name] = None
+        scopes.extend(scope.children)
+    scopes = [root]
+    result: dict[int, _Scope] = {}
+    while scopes:
+        scope = scopes.pop()
+        scope.code.local_names = tuple(scope.bound)
+        scope.code.cell_names = tuple(
+            name for name in scope.bound if name in scope.cells
+        )
+        scope.code.free_names = tuple(scope.free)
+        result[id(scope.node)] = scope
+        scopes.extend(scope.children)
+    return result
+
+
 def compile_source(source: object, filename: str) -> isa.CodeUnit:
     if not isinstance(source, str):
         raise SericiteError("VM source must be a string", filename=filename)
@@ -135,8 +223,9 @@ def compile_source(source: object, filename: str) -> isa.CodeUnit:
         ) from None
     try:
         _validate(tree, filename)
-        compiler = _Compiler(filename)
         code = isa.CodeUnit(name="<module>", params=[])
+        scopes = _analyze_scopes(tree, code)
+        compiler = _Compiler(filename, scopes)
         compiler.compile_body(tree.body, code)
         compiler.emit(code, isa.LOAD_CONST, None, 0)
         compiler.emit(code, isa.RETURN, None, 0)
@@ -159,8 +248,10 @@ def compile_source(source: object, filename: str) -> isa.CodeUnit:
 _STACK_DELTAS = {
     isa.LOAD_CONST: 1,
     isa.LOAD_NAME: 1,
+    isa.LOAD_DEREF: 1,
     isa.DUP: 1,
     isa.STORE_NAME: -1,
+    isa.STORE_DEREF: -1,
     isa.POP: -1,
     isa.GET_ITER: -1,
     isa.LOAD_INDEX: -1,
@@ -337,12 +428,17 @@ def _reject(node: ast.AST, filename: str, message: str) -> None:
 
 
 class _Compiler:
-    def __init__(self, filename: str) -> None:
+    def __init__(self, filename: str, scopes: dict[int, _Scope]) -> None:
         self._filename = filename
+        self._scopes = scopes
         self._loops: list[tuple[int, list[int], int]] = []
         self._finally_stack: list[list[ast.stmt]] = []
         self._function_depth = 0
         self._tmp_counter = 0
+
+    def _store_name(self, code: isa.CodeUnit, name: str, line: int) -> None:
+        op = isa.STORE_DEREF if name in code.cell_names else isa.STORE_NAME
+        self.emit(code, op, name, line)
 
     def _compile_finally_exits(
         self, code: isa.CodeUnit, line: int, bodies: list[list[ast.stmt]]
@@ -375,10 +471,10 @@ class _Compiler:
             for target in targets[:-1]:
                 self.emit(code, isa.DUP, None, line)
                 assert isinstance(target, ast.Name)
-                self.emit(code, isa.STORE_NAME, target.id, line)
+                self._store_name(code, target.id, line)
             last = targets[-1]
             if isinstance(last, ast.Name):
-                self.emit(code, isa.STORE_NAME, last.id, line)
+                self._store_name(code, last.id, line)
             else:
                 assert isinstance(last, ast.Subscript)
                 self.compile_expression(last.value, code)
@@ -446,8 +542,14 @@ class _Compiler:
                 self.emit(code, isa.RAISE, True, line)
             return
         if isinstance(node, ast.FunctionDef):
-            params = [argument.arg for argument in node.args.args]
-            child = isa.CodeUnit(name=node.name, params=params)
+            analyzed = self._scopes[id(node)].code
+            child = isa.CodeUnit(
+                name=analyzed.name,
+                params=analyzed.params,
+                local_names=analyzed.local_names,
+                cell_names=analyzed.cell_names,
+                free_names=analyzed.free_names,
+            )
             self._function_depth += 1
             loop_stack, self._loops = self._loops, []
             finally_stack, self._finally_stack = self._finally_stack, []
@@ -468,7 +570,7 @@ class _Compiler:
                 (child, len(node.args.defaults)),
                 line,
             )
-            self.emit(code, isa.STORE_NAME, node.name, line)
+            self._store_name(code, node.name, line)
             return
         if isinstance(node, ast.Return):
             if self._function_depth == 0:
@@ -505,7 +607,7 @@ class _Compiler:
         self.emit(code, isa.GET_ITER, iter_name, line)
         start = len(code.instrs)
         for_iter = self.emit(code, isa.FOR_ITER, (iter_name, None), line)
-        self.emit(code, isa.STORE_NAME, node.target.id, line)
+        self._store_name(code, node.target.id, line)
         breaks: list[int] = []
         self._loops.append((start, breaks, len(self._finally_stack)))
         self.compile_body(node.body, code)
@@ -595,7 +697,12 @@ class _Compiler:
             self.emit(code, isa.LOAD_CONST, node.value, line)
             return
         if isinstance(node, ast.Name):
-            self.emit(code, isa.LOAD_NAME, node.id, line)
+            op = (
+                isa.LOAD_DEREF
+                if node.id in code.cell_names or node.id in code.free_names
+                else isa.LOAD_NAME
+            )
+            self.emit(code, op, node.id, line)
             return
         if isinstance(node, ast.List):
             for element in node.elts:
