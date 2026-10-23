@@ -13,7 +13,7 @@ Syntax borrows a subset of Python, but Sericite source is compiled into Sericite
 
 ## Status
 
-0.2.0 prototype. The engine is a Python reference implementation (codename **Sericite-PY**): zero runtime dependencies, Python ≥ 3.12, 198 regression tests. APIs and semantics may change before 1.0.
+0.3.0 prototype. The engine is a Python reference implementation (codename **Sericite-PY**): zero runtime dependencies, Python ≥ 3.12, 221 regression tests. APIs and semantics may change before 1.0.
 
 > **Security note.** Sericite is designed for isolation, but the current prototype runs in the host process and has not been formally audited. Do not rely on it as the *only* boundary when executing adversarial code. See the [security model](https://github.com/LeoLoudWarden/sericite/blob/main/docs/security.md) for exactly what is and is not guaranteed.
 

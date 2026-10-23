@@ -13,7 +13,7 @@
 
 ## 状态
 
-0.2.0 原型。引擎是 Python 参考实现（代号 **Sericite-PY**）：零运行时依赖，Python ≥ 3.12，198 个回归测试用例。1.0 之前 API 与语义可能变化。
+0.3.0 原型。引擎是 Python 参考实现（代号 **Sericite-PY**）：零运行时依赖，Python ≥ 3.12，221 个回归测试用例。1.0 之前 API 与语义可能变化。
 
 > **安全提示。** Sericite 为隔离而设计，但当前原型与宿主同进程运行，未经正式安全审计。执行对抗性代码时，不要把 Sericite 当作**唯一**的隔离边界。引擎保证什么、不保证什么，见[安全模型](https://github.com/LeoLoudWarden/sericite/blob/main/docs/security.zh-CN.md)。
 
