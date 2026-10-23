@@ -287,6 +287,42 @@ class ChildGrantTests(unittest.TestCase):
         )
         self.assertEqual(run(source), "30\n\n")
 
+    def test_granted_function_keeps_definition_granted_environment(self):
+        child = (
+            "def helper():\n"
+            "    return 'child'\n"
+            'grandchild = VM("print(f())\\n", '
+            "functions={'f': f, 'helper': helper})\n"
+            "print(grandchild.run())\n"
+        )
+        source = (
+            "def f():\n"
+            "    return helper()\n"
+            "sub = VM(" + repr(child) + ", functions={'f': f})\n"
+            "print(sub.run())\n"
+        )
+        output = run(source, functions={"helper": lambda: "parent"})
+        self.assertEqual(output, "parent\n\n\n")
+
+    def test_caller_granted_name_cannot_shadow_missing_definition_name(self):
+        child = (
+            "def helper():\n"
+            "    return 'child'\n"
+            'grandchild = VM("print(f())\\n", '
+            "functions={'f': f, 'helper': helper})\n"
+            "print(grandchild.run())\n"
+        )
+        source = (
+            "def f():\n"
+            "    try:\n"
+            "        return helper()\n"
+            "    except name_error:\n"
+            "        return 'safe'\n"
+            "sub = VM(" + repr(child) + ", functions={'f': f})\n"
+            "print(sub.run())\n"
+        )
+        self.assertEqual(run(source), "safe\n\n\n")
+
     def test_child_globals_not_visible_to_granted_function(self):
         child = (
             "base = 5\n"

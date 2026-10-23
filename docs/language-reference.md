@@ -1,6 +1,6 @@
 # Sericite Language Reference
 
-Sericite is a scripting language whose syntax is a subset of Python — it reads like Python, but **not every Python construct is legal**, and some semantics have their own rules. This document is self-contained: read it and you can start writing. It describes the language behavior of Sericite 0.3.0.
+Sericite is a scripting language whose syntax is a subset of Python — it reads like Python, but **not every Python construct is legal**, and some semantics have their own rules. This document is self-contained: read it and you can start writing. It describes the language behavior of Sericite 0.3.1.
 
 ## 1. What it looks like
 
@@ -176,6 +176,8 @@ def double(x):
 sub = VM("print(double(21))", functions={"double": double})
 sub.run()                        # prints 42
 ```
+
+A granted sericite function retains its definition-side module variables, closure cells, and already-granted functions by reference. Mutable state reachable through those environments is shared capability: only grant functions whose reachable state the child VM may observe or modify.
 
 ## 8. Explicitly not writable (rejected at compile time)
 

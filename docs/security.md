@@ -15,7 +15,7 @@ Defense comes in two layers, and so does responsibility:
 
 By design promise (and covered by regression tests), a script inside a VM:
 
-- **cannot see** parent variables, parent files, host objects, or Python reflection entry points;
+- **cannot see** ungranted parent variables, parent files, host objects, or Python reflection entry points;
 - **cannot tell** how deeply it is nested; error and debug views contain only logical source locations and safe values — no host tracebacks or real paths leak through;
 - **cannot bypass** resource quotas: instruction count, output bytes, call depth, child VM count, nesting depth, container sizes, string bytes, integer bit width, approximate total memory, file count and per-file bytes are all capped, and a child VM's consumption is charged to all its ancestors;
 - **cannot swallow** `resource_exhausted` or `internal_error` — these two kinds are not catchable by script try/except, so quotas cannot be eaten by the script;
@@ -31,6 +31,7 @@ Each of the following matters equally; evaluate them before use:
 2. **Host function execution time and memory are not metered.** FFI functions are trusted code; their CPU/memory cost is the host's own discipline. A malicious or runaway host function is outside quota coverage.
 3. **The cost model is approximate.** Memory accounting uses approximate byte counts and only ever increases (high-water mark); O(n) operations are charged to the instruction count at a discounted rate. It defends against *unbounded growth*, not exact measurement.
 4. **Default quotas are not safe values.** Defaults target development and debugging; tighten them explicitly when running untrusted code.
+5. **Granting a function also grants its definition-side state.** A sericite function granted between VMs retains by reference its defining module variables, closure cells, and already-granted function environment. If that function returns or mutates a mutable object from those environments, the calling VM can affect definition-side state. Grant only functions and state the child VM is allowed to influence.
 
 ## 4. Review so far
 

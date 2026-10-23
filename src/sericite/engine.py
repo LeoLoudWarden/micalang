@@ -66,6 +66,7 @@ class Frame:
     cells: dict[str, _Cell] = field(default_factory=dict)
     closure: dict[str, _Cell] = field(default_factory=dict)
     module_locals: dict[str, object] | None = None
+    granted: dict[str, object] | None = None
     active_error: SericiteError | None = None
 
 
@@ -76,11 +77,13 @@ class SericiteFunction:
         defaults: tuple[object, ...],
         closure: dict[str, _Cell],
         module_locals: dict[str, object],
+        granted: dict[str, object],
     ) -> None:
         self.code = code
         self.defaults = defaults
         self.closure = closure
         self.module_locals = module_locals
+        self.granted = granted
 
     def __repr__(self) -> str:
         return f"<function {self.code.name}>"
@@ -125,12 +128,13 @@ class _GrantedHostFunction:
 
 @dataclass(frozen=True)
 class _GrantedSericiteFunction:
-    """父 VM 授予的函数：在调用方帧栈执行，保留定义方闭包与模块全局。"""
+    """父 VM 授予的函数：在调用方帧栈执行，保留完整定义方环境。"""
 
     name: str
     code: isa.CodeUnit
     module_locals: dict[str, object]
     closure: dict[str, _Cell]
+    granted: dict[str, object]
     defaults: tuple[object, ...] = ()
 
     def __repr__(self) -> str:
@@ -585,9 +589,17 @@ class SericiteEngine:
                 if frame.module_locals is not None
                 else context.frames[0].locals
             )
-            self._charge_alloc(context, len(closure) * 8)
+            granted = (
+                frame.granted
+                if frame.granted is not None
+                else context.granted
+            )
+            if closure:
+                self._charge_alloc(context, 64 + len(closure) * 8)
             stack.append(
-                SericiteFunction(code, defaults, closure, module_locals)
+                SericiteFunction(
+                    code, defaults, closure, module_locals, granted
+                )
             )
         elif op == isa.GET_ITER:
             iterator = _make_iterator(stack.pop())
@@ -668,6 +680,7 @@ class SericiteEngine:
                     locals_,
                     function.module_locals,
                     function.closure,
+                    function.granted,
                 )
             )
             return
@@ -738,6 +751,7 @@ class SericiteEngine:
                     locals_,
                     function.module_locals,
                     function.closure,
+                    function.granted,
                 )
             )
             return
@@ -750,18 +764,20 @@ class SericiteEngine:
         locals_: dict[str, object],
         module_locals: dict[str, object],
         closure: dict[str, _Cell],
+        granted: dict[str, object],
     ) -> Frame:
         cells = {name: _Cell() for name in code.cell_names}
         for name, cell in cells.items():
             if name in locals_:
                 cell.value = locals_.pop(name)
-        self._charge_alloc(context, len(cells) * 8)
+        self._charge_alloc(context, len(cells) * 64)
         return Frame(
             code=code,
             locals=locals_,
             cells=cells,
             closure=closure,
             module_locals=module_locals,
+            granted=granted,
         )
 
     def _bind_arguments(
@@ -835,8 +851,11 @@ class SericiteEngine:
         )
         if name in module_locals:
             return module_locals[name]
-        if name in context.granted:
-            return context.granted[name]
+        granted = (
+            frame.granted if frame.granted is not None else context.granted
+        )
+        if name in granted:
+            return granted[name]
         builtin = self._builtin(context, name)
         if builtin is not None:
             return builtin
@@ -896,7 +915,7 @@ class SericiteEngine:
     ) -> VMHandle:
         if not isinstance(source, str):
             raise SericiteError("VM source must be a string", kind="type_error")
-        self._charge_work(parent, 1 + len(source) // 64)
+        self._charge_work(parent, 1 + len(source) // 4)
         granted = self._validate_child_functions(parent, config.pop("functions", None))
         limits = parent.limits
         if config:
@@ -948,6 +967,7 @@ class SericiteEngine:
                     value.code,
                     value.module_locals,
                     value.closure,
+                    value.granted,
                     value.defaults,
                 )
             elif isinstance(value, _GrantedHostFunction):
@@ -958,6 +978,7 @@ class SericiteEngine:
                     value.code,
                     value.module_locals,
                     value.closure,
+                    value.granted,
                     value.defaults,
                 )
             else:

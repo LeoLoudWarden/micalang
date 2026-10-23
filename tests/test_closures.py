@@ -371,11 +371,14 @@ class ClosureRuntimeTests(unittest.TestCase):
             "    return read\n"
             "f = make()\n"
         )
-        engine = SericiteEngine(limits=SericiteLimits(max_total_bytes=8))
+        engine = SericiteEngine(limits=SericiteLimits(max_total_bytes=135))
         vm = engine.create_root(source)
         with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "resource_exhausted")
+
+        engine = SericiteEngine(limits=SericiteLimits(max_total_bytes=136))
+        self.assertEqual(engine.create_root(source).run(), "")
 
 
 if __name__ == "__main__":

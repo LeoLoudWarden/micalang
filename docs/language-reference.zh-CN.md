@@ -1,6 +1,6 @@
 # Sericite 语言参考
 
-Sericite 是一门脚本语言，语法是 Python 的子集——写起来就是 Python，但**不是所有 Python 写法都合法**，而且部分语义有自己的规矩。本文自完备：读完即可开写。本文描述 Sericite 0.3.0 的语言行为。
+Sericite 是一门脚本语言，语法是 Python 的子集——写起来就是 Python，但**不是所有 Python 写法都合法**，而且部分语义有自己的规矩。本文自完备：读完即可开写。本文描述 Sericite 0.3.1 的语言行为。
 
 ## 1. 基本样子
 
@@ -176,6 +176,8 @@ def double(x):
 sub = VM("print(double(21))", functions={"double": double})
 sub.run()                        # 输出 42
 ```
+
+被授予的 sericite 函数按引用保留定义方的模块变量、闭包 cell 与已授予函数环境。这些环境中可达的可变状态属于共享能力：只应授予允许子 VM 读取或修改其可达状态的函数。
 
 ## 8. 明确不能写（编译期直接拒绝）
 
