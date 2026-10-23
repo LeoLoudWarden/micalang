@@ -216,7 +216,7 @@ sub = VM("print(double(21))", functions={"double": double})
 sub.run()                        # prints 42
 ```
 
-A granted sericite function retains its definition-side module variables, closure cells, and already-granted functions by reference. Mutable state reachable through those environments is shared capability: only grant functions whose reachable state the child VM may observe or modify.
+A granted sericite function retains its definition-side module variables, closure cells, and already-granted functions by reference, and builtins (`print`/`read_file` and other IO/filesystem services) also resolve back to the VM that defined it — a function value carries its whole world with it. Mutable state reachable through those environments is shared capability: only grant functions whose reachable state the child VM may observe or modify.
 
 ## 9. Explicitly not writable (rejected at compile time)
 

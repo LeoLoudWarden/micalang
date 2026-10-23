@@ -71,6 +71,8 @@ class Frame:
     return_contract: object = None
     return_label: str | None = None
     display_name: str | None = None
+    # 代码的定义 VM；内建（IO/文件系统/配额等世界服务）解析回它。
+    home: object = None
 
 
 class SericiteFunction:
@@ -83,6 +85,7 @@ class SericiteFunction:
         granted: dict[str, object],
         param_contracts: tuple[object, ...] = (),
         return_contract: object = None,
+        home: object = None,
     ) -> None:
         self.code = code
         self.defaults = defaults
@@ -91,6 +94,7 @@ class SericiteFunction:
         self.granted = granted
         self.param_contracts = param_contracts
         self.return_contract = return_contract
+        self.home = home
 
     def __repr__(self) -> str:
         return f"<function {self.code.name}>"
@@ -275,6 +279,9 @@ def _make_iterator(value: object) -> _Iterator:
 class _NativeFunction:
     name: str
     callback: Callable[..., object]
+    # 内建所属的世界（定义 VM）；非 None 且不等于执行上下文时，
+    # 其计费会被镜像到执行上下文（因果计费）。
+    home: object = None
 
     def __repr__(self) -> str:
         return f"<function {self.name}>"
@@ -303,6 +310,7 @@ class _GrantedSericiteFunction:
     defaults: tuple[object, ...] = ()
     param_contracts: tuple[object, ...] = ()
     return_contract: object = None
+    home: object = None
 
     def __repr__(self) -> str:
         return f"<function {self.name}>"
@@ -773,8 +781,11 @@ class SericiteEngine:
             contract = _normalize_contract(contract_value)
             self._charge_work(context, _contract_cost(contract))
             if not _contract_holds(value, contract):
+                label = (
+                    arg if frame.code.origin_vm == context.vm_id else None
+                )
                 raise _contract_violation(
-                    "annotated assignment", arg, contract, value
+                    "annotated assignment", label, contract, value
                 )
         elif op == isa.MAKE_FUNCTION:
             code, defaults_count, annot_count = arg
@@ -811,6 +822,7 @@ class SericiteEngine:
                 SericiteFunction(
                     code, defaults, closure, module_locals, granted,
                     param_contracts, return_contract,
+                    frame.home or context,
                 )
             )
         elif op == isa.GET_ITER:
@@ -895,6 +907,7 @@ class SericiteEngine:
                 kwargs,
                 function.defaults,
                 display_name=None if visible else "function",
+                hide_params=not visible,
             )
             self._check_param_contracts(context, function, locals_)
             if len(context.frames) + 1 > context.limits.max_frames:
@@ -914,6 +927,7 @@ class SericiteEngine:
                     function.return_contract,
                     code.return_label if visible else None,
                     None if visible else "function",
+                    function.home,
                 )
             )
             return
@@ -924,6 +938,11 @@ class SericiteEngine:
             stack.append(record)
             return
         if isinstance(function, _NativeFunction):
+            home = function.home
+            mirror = home is not None and home is not context
+            if mirror:
+                before_home = (home.instruction_count, home.alloc_bytes)
+                before_self = (context.instruction_count, context.alloc_bytes)
             try:
                 result = function.callback(*args, **kwargs)
             except InputRequired:
@@ -934,6 +953,18 @@ class SericiteEngine:
                 raise SericiteError(
                     f"invalid arguments for {function.name}", kind="type_error"
                 ) from None
+            if mirror:
+                # 世界服务归属 home，但资源成本因果地属于触发它的调用方：
+                # 把 home 账本的增量镜像到「调用方与 home 之间」的各层，
+                # 并扣除回调期间已沿调用方祖先链走过账的部分
+                # （如新建子 VM 的初始分配），避免重复计费。
+                work_done = home.instruction_count - before_home[0]
+                alloc_done = home.alloc_bytes - before_home[1]
+                work_done -= context.instruction_count - before_self[0]
+                alloc_done -= context.alloc_bytes - before_self[1]
+                self._mirror_charge(
+                    context, home, max(work_done, 0), max(alloc_done, 0)
+                )
             del stack[base - 1 :]
             frame.pc += 1
             stack.append(result)
@@ -980,6 +1011,7 @@ class SericiteEngine:
                 kwargs,
                 function.defaults,
                 display_name=function.name,
+                hide_params=True,
             )
             self._check_param_contracts(context, function, locals_)
             if len(context.frames) + 1 > context.limits.max_frames:
@@ -999,6 +1031,7 @@ class SericiteEngine:
                     function.return_contract,
                     None,
                     function.name,
+                    function.home,
                 )
             )
             return
@@ -1015,6 +1048,7 @@ class SericiteEngine:
         return_contract: object = None,
         return_label: str | None = None,
         display_name: str | None = None,
+        home: object = None,
     ) -> Frame:
         cells = {name: _Cell() for name in code.cell_names}
         for name, cell in cells.items():
@@ -1031,6 +1065,7 @@ class SericiteEngine:
             return_contract=return_contract,
             return_label=return_label,
             display_name=display_name,
+            home=home,
         )
 
     def _check_param_contracts(
@@ -1055,13 +1090,16 @@ class SericiteEngine:
         labels: tuple = code.param_labels
         if not visible or len(labels) != len(code.params):
             labels = (None,) * len(code.params)
-        for name, contract, label in zip(code.params, contracts, labels):
+        for index, (name, contract, label) in enumerate(
+            zip(code.params, contracts, labels)
+        ):
             if contract is None:
                 continue
             self._charge_work(context, _contract_cost(contract))
             value = locals_[name]
             if not _contract_holds(value, contract):
-                where = f"argument {name}"
+                shown = name if visible else str(index + 1)
+                where = f"argument {shown}"
                 if func_name is not None:
                     where += f" of {func_name}"
                 raise _contract_violation(where, label, contract, value)
@@ -1103,6 +1141,7 @@ class SericiteEngine:
             )
         for name, contract in fields:
             value = values[name]
+            self._charge_work(context, _contract_cost(contract))
             if not _contract_holds(value, contract):
                 raise _contract_violation(
                     f"field {name}", None, contract, value
@@ -1134,6 +1173,7 @@ class SericiteEngine:
                 kind="attribute_error",
             )
         contract = schema.field_map[attr]
+        self._charge_work(context, _contract_cost(contract))
         if not _contract_holds(value, contract):
             raise _contract_violation(
                 f"field {attr}", None, contract, value
@@ -1147,9 +1187,18 @@ class SericiteEngine:
         kwargs: dict[str, object],
         defaults: tuple[object, ...] = (),
         display_name: str | None = None,
+        hide_params: bool = False,
     ) -> dict[str, object]:
+        # hide_params：代码不属于当前 VM 时，参数名是定义方的内部名字，
+        # 报错改用位置序号（不变量 16）。
         params = code.params
         fname = display_name or code.name
+
+        def shown(name: str) -> str:
+            if not hide_params:
+                return name
+            return str(params.index(name) + 1)
+
         if len(args) > len(params):
             raise SericiteError(
                 f"{fname}() expects {len(params)} argument(s), "
@@ -1160,7 +1209,7 @@ class SericiteEngine:
         for key, value in kwargs.items():
             if key in locals_:
                 raise SericiteError(
-                    f"{fname}() got multiple values for '{key}'",
+                    f"{fname}() got multiple values for '{shown(key)}'",
                     kind="arity_error",
                 )
             if key not in params:
@@ -1175,7 +1224,7 @@ class SericiteEngine:
                 if name not in locals_:
                     locals_[name] = defaults[offset]
         if len(locals_) != len(params):
-            missing = [name for name in params if name not in locals_]
+            missing = [shown(name) for name in params if name not in locals_]
             raise SericiteError(
                 f"{fname}() missing argument(s): {', '.join(missing)}",
                 kind="arity_error",
@@ -1218,37 +1267,45 @@ class SericiteEngine:
         )
         if name in granted:
             return granted[name]
-        builtin = self._builtin(context, name)
+        # 内建解析回代码的定义 VM（home），而非当前执行的 VM
+        builtin = self._builtin(frame.home or context, name, caller=context)
         if builtin is not None:
             return builtin
         raise SericiteError(f"name '{name}' is not defined", kind="name_error")
 
-    def _builtin(self, context: VMContext, name: str) -> _NativeFunction | None:
+    def _builtin(
+        self,
+        home: VMContext,
+        name: str,
+        caller: VMContext | None = None,
+    ) -> _NativeFunction | None:
         if name == "input":
-            return _NativeFunction("input", lambda: self._read_input(context))
+            return _NativeFunction(
+                "input", lambda: self._read_input(home), home
+            )
         if name == "print":
             return _NativeFunction(
-                "print", lambda *values: self._print(context, values)
+                "print", lambda *values: self._print(home, values), home
             )
         if name == "len":
             return _NativeFunction("len", self._len)
         if name == "int":
             return _NativeFunction(
-                "int", lambda value: self._convert_int(context, value)
+                "int", lambda value: self._convert_int(home, value), home
             )
         if name == "float":
             return _NativeFunction("float", self._convert_float)
         if name == "str":
             return _NativeFunction(
-                "str", lambda value: self._str_builtin(context, value)
+                "str", lambda value: self._str_builtin(home, value), home
             )
         if name == "range":
             return _NativeFunction(
-                "range", lambda *args: self._range(context, args)
+                "range", lambda *args: self._range(home, args), home
             )
         if name == "keys":
             return _NativeFunction(
-                "keys", lambda value: self._keys(context, value)
+                "keys", lambda value: self._keys(home, value), home
             )
         if name == "any":
             return _ANY
@@ -1256,42 +1313,56 @@ class SericiteEngine:
             return _TAG_CONTRACTS[name]
         if name == "wrap":
             return _NativeFunction(
-                "wrap", lambda schema, data: self._wrap(context, schema, data)
+                "wrap", lambda schema, data: self._wrap(home, schema, data),
+                home,
             )
         if name == "unwrap":
             return _NativeFunction(
-                "unwrap", lambda record: self._unwrap(context, record)
+                "unwrap", lambda record: self._unwrap(home, record), home
             )
         if name == "read_file":
             return _NativeFunction(
-                "read_file", lambda path: self._read_file(context, path)
+                "read_file", lambda path: self._read_file(home, path), home
             )
         if name == "write_file":
             return _NativeFunction(
                 "write_file",
-                lambda path, text: self._write_file(context, path, text),
+                lambda path, text: self._write_file(home, path, text),
+                home,
             )
         if name == "list_dir":
-            return _NativeFunction("list_dir", context.fs.list_dir)
+            return _NativeFunction("list_dir", home.fs.list_dir, home)
         if name == "path_exists":
-            return _NativeFunction("path_exists", context.fs.path_exists)
+            return _NativeFunction("path_exists", home.fs.path_exists, home)
         if name == "VM":
             return _NativeFunction(
                 "VM",
                 lambda source, **kwargs: self._create_child(
-                    context, source, kwargs
+                    home, source, kwargs, cap=caller
                 ),
+                home,
             )
         return None
 
     def _create_child(
-        self, parent: VMContext, source: object, config: dict[str, object]
+        self,
+        parent: VMContext,
+        source: object,
+        config: dict[str, object],
+        cap: VMContext | None = None,
     ) -> VMHandle:
+        # 世界归属 parent（home：授予校验与配额上限的来源）；因果归属
+        # 调用方 cap：新 VM 是空世界，树位置只影响记账/深度/子计数，
+        # 挂到触发它的调用方下，消耗沿调用方祖先链上溯（不变量 14）。
+        # 配额取 parent 与调用方的逐项最小值。
+        causal = cap if cap is not None else parent
         if not isinstance(source, str):
             raise SericiteError("VM source must be a string", kind="type_error")
         self._charge_work(parent, 1 + len(source) // 4)
         granted = self._validate_child_functions(parent, config.pop("functions", None))
         limits = parent.limits
+        if causal is not parent:
+            limits = _min_limits(limits, causal.limits)
         if config:
             overrides: dict[str, int] = {}
             for key, value in config.items():
@@ -1304,19 +1375,19 @@ class SericiteEngine:
                         f"VM option {key} must be a non-negative int",
                         kind="type_error",
                     )
-                overrides[key] = min(getattr(parent.limits, key), value)
-            limits = dataclasses.replace(parent.limits, **overrides)
-        depth = parent.depth + 1
+                overrides[key] = min(getattr(limits, key), value)
+            limits = dataclasses.replace(limits, **overrides)
+        depth = causal.depth + 1
         if depth > limits.max_vm_depth:
             raise SericiteError("VM depth limit exceeded", kind="resource_exhausted")
-        if parent.child_count >= parent.limits.max_child_vms:
+        if causal.child_count >= causal.limits.max_child_vms:
             raise SericiteError(
                 "child VM limit exceeded", kind="resource_exhausted"
             )
-        parent.child_count += 1
+        causal.child_count += 1
         return self._create_vm(
             source=source,
-            parent_id=parent.vm_id,
+            parent_id=causal.vm_id,
             depth=depth,
             io=VirtualIO(max_output_bytes=limits.max_output_bytes),
             limits=limits,
@@ -1345,6 +1416,7 @@ class SericiteEngine:
                     value.defaults,
                     value.param_contracts,
                     value.return_contract,
+                    value.home,
                 )
             elif isinstance(value, _GrantedHostFunction):
                 granted[name] = _GrantedHostFunction(name, value.callback)
@@ -1358,6 +1430,7 @@ class SericiteEngine:
                     value.defaults,
                     value.param_contracts,
                     value.return_contract,
+                    value.home,
                 )
             else:
                 raise SericiteError(
@@ -1537,6 +1610,32 @@ class SericiteEngine:
             )
         return value
 
+    def _mirror_charge(
+        self, context: VMContext, home: VMContext, work: int, alloc: int
+    ) -> None:
+        """把 home 账本的增量镜像到调用方及其与 home 之间的中间层。
+
+        home 及其祖先已由原记账覆盖；若 home 不在调用方祖先链上
+        （上行/跨兄弟），则镜像到调用方的整条祖先链。
+        """
+        current = context
+        while current is not home:
+            if work > 0:
+                current.instruction_count += work
+                if current.instruction_count > current.limits.max_instructions:
+                    raise SericiteError(
+                        "instruction limit exceeded", kind="resource_exhausted"
+                    )
+            if alloc > 0:
+                current.alloc_bytes += alloc
+                if current.alloc_bytes > current.limits.max_total_bytes:
+                    raise SericiteError(
+                        "total memory limit exceeded", kind="resource_exhausted"
+                    )
+            if current.parent_id is None:
+                break
+            current = self._contexts[current.parent_id]
+
     def _charge_alloc(self, context: VMContext, amount: int) -> None:
         """为新创建的对象记账（近似字节数，只增不减），并计入祖先。
 
@@ -1586,12 +1685,12 @@ class SericiteEngine:
     ) -> bool:
         if op in ("==", "!="):
             counter = [1]
-            result = _equals(left, right, set(), counter)
+            result = _equals(left, right, set(), {}, counter)
             self._charge_work(context, counter[0])
             return result if op == "==" else not result
         if op in ("in", "not in"):
             counter = [1]
-            result = _contains(right, left, set(), counter)
+            result = _contains(right, left, set(), {}, counter)
             self._charge_work(context, counter[0])
             return result if op == "in" else not result
         if (_is_number(left) and _is_number(right)) or (
@@ -1731,9 +1830,9 @@ class SericiteEngine:
                 f"wrap() key mismatch ({'; '.join(parts)})",
                 kind="contract_error",
             )
-        self._charge_work(context, len(schema.fields))
         for name, contract in schema.fields:
             value = data[name]
+            self._charge_work(context, _contract_cost(contract))
             if not _contract_holds(value, contract):
                 raise _contract_violation(
                     f"field {name}", None, contract, value
@@ -1853,7 +1952,7 @@ class SericiteEngine:
                 _seen.discard(ident)
         if isinstance(value, SericiteSchema):
             return repr(value)
-        if isinstance(value, (VMHandle, SericiteFunction)):
+        if isinstance(value, (VMHandle, SericiteFunction, _NativeFunction)):
             return repr(value)
         if isinstance(value, (_GrantedHostFunction, _GrantedSericiteFunction)):
             return repr(value)
@@ -1862,6 +1961,12 @@ class SericiteEngine:
 
 def _is_number(value: object) -> bool:
     return type(value) in (int, float)
+
+
+def _min_limits(a: SericiteLimits, b: SericiteLimits) -> SericiteLimits:
+    return dataclasses.replace(
+        a, **{key: min(getattr(a, key), getattr(b, key)) for key in _VM_OPTIONS}
+    )
 
 
 def _stamp_origin(code: isa.CodeUnit, vm_id: int) -> None:
@@ -2000,11 +2105,16 @@ def _truthy(value: object) -> bool:
 def _equals(
     left: object,
     right: object,
-    _pairs: set | None = None,
+    _active: set | None = None,
+    _cache: dict | None = None,
     _counter: list | None = None,
 ) -> bool:
-    """结构相等。_pairs 按 (id, id) 记忆化已比较/比较中的容器对，
-    共享子结构（DAG）不会重复展开；_counter 累计访问的节点数供配额计费。"""
+    """结构相等。
+
+    _active 记录比较中的容器对（命中 = 环/共享子结构，余归纳返回 True）；
+    _cache 记录已完成的比较结果（命中返回真实结果，不重复展开 DAG）；
+    _counter 累计访问的节点数供配额计费。
+    """
     if _counter is not None:
         _counter[0] += 1
     if left is right:
@@ -2013,36 +2123,57 @@ def _equals(
         return left == right
     if type(left) is not type(right):
         return False
-    if isinstance(left, (str, bool)) or left is None:
+    if type(left) is str:
+        if _counter is not None:
+            _counter[0] += len(left)
+        return left == right
+    if isinstance(left, bool) or left is None:
         return left == right
     if isinstance(left, (list, dict, SericiteRecord)):
-        if _pairs is not None:
+        if _active is not None:
             pair = (id(left), id(right))
-            if pair in _pairs:
-                # 环/共享子结构：比较中或已比较的对视为相等（余归纳语义）
+            if pair in _active:
                 return True
-            _pairs.add(pair)
-        if type(left) is list:
-            return len(left) == len(right) and all(
-                _equals(a, b, _pairs, _counter) for a, b in zip(left, right)
-            )
-        if type(left) is dict:
-            return left.keys() == right.keys() and all(
-                _equals(left[key], right[key], _pairs, _counter)
-                for key in left
-            )
-        return left.schema.key == right.schema.key and _equals(
-            left.fields, right.fields, _pairs, _counter
-        )
+            cached = _cache.get(pair)
+            if cached is not None:
+                return cached
+            _active.add(pair)
+            result = _equals_container(left, right, _active, _cache, _counter)
+            _active.discard(pair)
+            _cache[pair] = result
+            return result
+        return _equals_container(left, right, _active, _cache, _counter)
     if isinstance(left, SericiteSchema):
         return left.key == right.key
     return left is right
 
 
+def _equals_container(
+    left: object,
+    right: object,
+    active: set | None,
+    cache: dict | None,
+    counter: list | None,
+) -> bool:
+    if type(left) is list:
+        return len(left) == len(right) and all(
+            _equals(a, b, active, cache, counter) for a, b in zip(left, right)
+        )
+    if type(left) is dict:
+        return left.keys() == right.keys() and all(
+            _equals(left[key], right[key], active, cache, counter)
+            for key in left
+        )
+    return left.schema.key == right.schema.key and _equals(
+        left.fields, right.fields, active, cache, counter
+    )
+
+
 def _contains(
     container: object,
     item: object,
-    _pairs: set | None = None,
+    _active: set | None = None,
+    _cache: dict | None = None,
     _counter: list | None = None,
 ) -> bool:
     if type(container) is dict:
@@ -2054,9 +2185,12 @@ def _contains(
         return item in container
     if type(container) is list:
         return any(
-            _equals(element, item, _pairs, _counter) for element in container
+            _equals(element, item, _active, _cache, _counter)
+            for element in container
         )
     if type(container) is str and type(item) is str:
+        if _counter is not None:
+            _counter[0] += len(container)
         return item in container
     raise SericiteError(
         f"'in' not supported between {_type_name(item)} "
@@ -2083,6 +2217,8 @@ def _type_name(value: object) -> str:
     if isinstance(value, SericiteFunction):
         return "function"
     if isinstance(value, _NativeFunction):
+        return "function"
+    if isinstance(value, (_GrantedHostFunction, _GrantedSericiteFunction)):
         return "function"
     if isinstance(value, VMHandle):
         return "VM"

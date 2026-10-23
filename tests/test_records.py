@@ -443,7 +443,7 @@ class ClosureAndVMTests(unittest.TestCase):
             "print(sub.run())\n"
         )
         out = run(source)
-        self.assertIn("argument p of f:", out)
+        self.assertIn("argument 1 of f:", out)
         self.assertIn("expected {x: int}", out)
         self.assertNotIn("get_x", out)
         self.assertNotIn("P {", out)
@@ -477,7 +477,7 @@ class ClosureAndVMTests(unittest.TestCase):
             "print(sub.run())\n"
         )
         out = run(source)
-        self.assertIn("h() missing argument(s): b", out)
+        self.assertIn("h() missing argument(s): 2", out)
         self.assertNotIn("two_args", out)
 
     def test_nested_helper_attr_hint_erased_in_child_vm(self):
@@ -522,7 +522,7 @@ class ClosureAndVMTests(unittest.TestCase):
             "print(sub.run())\n"
         )
         out = run(source)
-        self.assertIn("argument r:", out)
+        self.assertIn("argument 1:", out)
         self.assertIn("expected {password: str}", out)
         self.assertNotIn("Secret", out)
         self.assertNotIn("helper", out)
@@ -564,7 +564,7 @@ class ClosureAndVMTests(unittest.TestCase):
             "print(sub.run())\n"
         )
         out = run(source)
-        self.assertIn("function() missing argument(s): b", out)
+        self.assertIn("function() missing argument(s): 2", out)
         self.assertNotIn("helper", out)
 
     def test_native_function_repr_safe(self):
@@ -653,6 +653,251 @@ class ClosureAndVMTests(unittest.TestCase):
             "print(a == b)\n"
         )
         self.assertEqual(out, "True\n")
+
+    def test_contains_no_false_positive_on_shared_substructure(self):
+        # 0.4.1 曾把"已比较为 False"的对误判为 True
+        out = run(
+            "a = [1, 2]\n"
+            "b = [a, a]\n"
+            "print([99] in b, [1, 2] in b)\n"
+        )
+        self.assertEqual(out, "False True\n")
+
+    def test_string_membership_is_charged(self):
+        limits = SericiteLimits(max_instructions=1_000_000)
+        source = (
+            's = "x"\n'
+            "i = 0\n"
+            "while i < 18:\n"
+            "    s = s + s\n"
+            "    i = i + 1\n"
+            "i = 0\n"
+            "while i < 100:\n"
+            '    found = "needle" in s\n'
+            "    i = i + 1\n"
+        )
+        try:
+            run(source, limits=limits)
+        except SericiteError as exc:
+            self.assertEqual(exc.kind, "resource_exhausted")
+        else:
+            raise AssertionError("expected resource_exhausted")
+
+    def test_schema_contract_check_is_charged(self):
+        # 每个字段契约是 500 字段的 schema，反复构造必须被计费
+        fields = "\n".join(f"    f{i}" for i in range(500))
+        limits = SericiteLimits(max_instructions=100000)
+        source = (
+            f"class Big:\n{fields}\n"
+            "class Holder:\n"
+            "    payload: Big\n"
+            "big = wrap(Big, {"
+            + ", ".join(f"'f{i}': 0" for i in range(500))
+            + "})\n"
+            "i = 0\n"
+            "while i < 5000:\n"
+            "    h = Holder(big)\n"
+            "    i = i + 1\n"
+        )
+        try:
+            run(source, limits=limits)
+        except SericiteError as exc:
+            self.assertEqual(exc.kind, "resource_exhausted")
+        else:
+            raise AssertionError("expected resource_exhausted")
+
+    def test_check_annot_label_erased_in_child_vm(self):
+        source = (
+            "class Secret:\n"
+            "    x: int\n"
+            "def helper():\n"
+            "    y: Secret = 1\n"
+            "    return y\n"
+            "def leak():\n"
+            "    return helper()\n"
+            "sub = VM(\"\"\"\n"
+            "try:\n"
+            "    leak()\n"
+            "except contract_error as e:\n"
+            "    print(e)\n"
+            "\"\"\", functions={'leak': leak})\n"
+            "print(sub.run())\n"
+        )
+        out = run(source)
+        self.assertIn("annotated assignment: expected {x: int}", out)
+        self.assertNotIn("Secret", out)
+
+    def test_snapshot_hides_native_function_class(self):
+        engine = SericiteEngine()
+        vm = engine.create_root(
+            'sub = VM("x = 1")\nf = sub.run\nprint(1)\n'
+        )
+        vm.step()
+        vm.step()
+        snapshot = vm.step()
+        self.assertEqual(snapshot["locals"]["f"], "<function VM.run>")
+
+
+class HomeVmTests(unittest.TestCase):
+    def test_granted_function_builtins_belong_to_home_vm(self):
+        source = (
+            "def writer():\n"
+            "    write_file('/log.txt', 'from home')\n"
+            "sub = VM(\"w()\", functions={'w': writer})\n"
+            "sub.run()\n"
+            "print(path_exists('/log.txt'), sub.path_exists('/log.txt'))\n"
+        )
+        self.assertEqual(run(source), "True False\n")
+
+    def test_upcalled_function_reads_its_own_vfs(self):
+        # 子 VM 交上来的函数被父 VM 调用时，read_file 读的是子 VM 自己的文件系统
+        source = (
+            "write_file('/secret.txt', 'PARENT SECRET')\n"
+            "saved = [None]\n"
+            "def stash(fn):\n"
+            "    saved[0] = fn\n"
+            "sub = VM(\"\"\"\n"
+            "def payload():\n"
+            "    return read_file('/secret.txt')\n"
+            "stash(payload)\n"
+            "\"\"\", functions={'stash': stash})\n"
+            "sub.run()\n"
+            "try:\n"
+            "    print(saved[0]())\n"
+            "except file_not_found:\n"
+            "    print('child vfs has no secret')\n"
+        )
+        self.assertEqual(run(source), "child vfs has no secret\n")
+
+    def test_granted_function_print_goes_home(self):
+        source = (
+            "def hello():\n"
+            "    print('from home')\n"
+            "sub = VM(\"h()\", functions={'h': hello})\n"
+            "sub.run()\n"
+            "print('child said:', sub.stdout())\n"
+        )
+        self.assertEqual(run(source), "from home\nchild said: \n")
+
+    def test_granted_function_type_name(self):
+        source = (
+            "def f():\n"
+            "    return 1\n"
+            "sub = VM(\"\"\"\n"
+            "try:\n"
+            "    len(g)\n"
+            "except type_error as e:\n"
+            "    print(e)\n"
+            "\"\"\", functions={'g': f})\n"
+            "print(sub.run())\n"
+        )
+        out = run(source)
+        self.assertIn("'function'", out)
+        self.assertNotIn("_Granted", out)
+
+    def test_spawned_vm_capped_by_caller_limits(self):
+        # 子 VM 借授予函数创建的孙 VM，配额同时受调用方收紧：
+        # 孙 VM 最多只能跑调用方预算内的指令（resource_exhausted 不可捕获，链式终止）
+        child_src = (
+            '\nout = spawn("i = 0\\nwhile i < 100000:\\n    i = i + 1")\n'
+        )
+        source = (
+            "def spawn(code):\n"
+            "    v = VM(code)\n"
+            "    return v.run()\n"
+            f"sub = VM({child_src!r}, functions={{'spawn': spawn}}, "
+            "max_instructions=1000)\n"
+            "sub.run()\n"
+        )
+        try:
+            run(source)
+        except SericiteError as exc:
+            self.assertEqual(exc.kind, "resource_exhausted")
+        else:
+            raise AssertionError("expected resource_exhausted")
+
+    def test_builtin_work_mirrored_to_caller_quota(self):
+        # 授予函数的 read_file 作用于 home 的文件系统，
+        # 但资源消耗同时计入调用方账本：紧配额的子 VM 读大文件被拦下
+        source = (
+            'big = "x"\n'
+            "i = 0\n"
+            "while i < 18:\n"
+            "    big = big + big\n"
+            "    i = i + 1\n"
+            'write_file("/big.txt", big)\n'
+            "def peek():\n"
+            "    return read_file('/big.txt')\n"
+            'sub = VM("""\n'
+            "i = 0\n"
+            "while i < 5:\n"
+            "    s = peek()\n"
+            "    i = i + 1\n"
+            '""", functions={"peek": peek}, max_total_bytes=2000000)\n'
+            "sub.run()\n"
+        )
+        try:
+            run(source)
+        except SericiteError as exc:
+            self.assertEqual(exc.kind, "resource_exhausted")
+        else:
+            raise AssertionError("expected resource_exhausted")
+        # 宽配额下同一代码正常完成
+        self.assertEqual(
+            run(source.replace("max_total_bytes=2000000",
+                               "max_total_bytes=50000000")),
+            "",
+        )
+
+    def test_spawned_vms_bill_caller_cumulatively(self):
+        # 经授予函数反复创建孙 VM：孙 VM 的运行期消耗沿调用方祖先链记账，
+        # 紧配额的调用方在少量 spawn 后耗尽（而不是每个孙 VM 单独封顶）
+        source = (
+            "def spawn():\n"
+            "    v = VM('i = 0\\nwhile i < 900:\\n    i = i + 1')\n"
+            "    return v.run()\n"
+            "sub = VM(\n"
+            "    'i = 0\\nwhile i < 200:\\n    spawn()\\n    i = i + 1',\n"
+            "    functions={'spawn': spawn}, max_instructions=3000)\n"
+            "sub.run()\n"
+        )
+        try:
+            run(source)
+        except SericiteError as exc:
+            self.assertEqual(exc.kind, "resource_exhausted")
+        else:
+            raise AssertionError("expected resource_exhausted")
+
+    def test_spawned_vm_attaches_to_caller_tree(self):
+        # 授予函数创建的孙 VM 挂在调用方树下（深度与父级按因果归属）
+        engine = SericiteEngine()
+        source = (
+            "def spawn():\n"
+            "    return VM('x = 1')\n"
+            "sub = VM('g = spawn()\\ng.run()', functions={'spawn': spawn})\n"
+            "sub.run()\n"
+        )
+        engine.create_root(source).run()
+        grandchild = engine._contexts[2]
+        self.assertEqual(grandchild.depth, 2)
+        self.assertEqual(grandchild.parent_id, 1)
+
+    def test_spawn_alloc_not_double_counted(self):
+        # 孙 VM 的初始分配沿祖先链走账一次；镜像计费不重复计入调用方
+        import json
+
+        grandchild_source = "x = " + json.dumps("y" * 50000)
+        engine = SericiteEngine()
+        source = (
+            "def spawn():\n"
+            f"    return VM({grandchild_source!r})\n"
+            "sub = VM('g = spawn()', functions={'spawn': spawn})\n"
+            "sub.run()\n"
+        )
+        engine.create_root(source).run()
+        child = engine._contexts[1]
+        grandchild = engine._contexts[2]
+        self.assertEqual(child.alloc_bytes, grandchild.alloc_bytes)
 
     def test_record_flows_across_vms_by_reference(self):
         source = (
