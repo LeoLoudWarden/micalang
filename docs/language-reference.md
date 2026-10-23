@@ -98,7 +98,25 @@ Closures created by the same outer call share captured variables; separate outer
 
 Assigning a name anywhere in a function makes it local throughout that function. An inner assignment therefore shadows rather than modifies the outer binding; `nonlocal` and `global` are not supported. Module globals are still resolved from the defining module rather than copied into the closure.
 
-Not supported: variadic arguments (`*args`), keyword-only parameters, decorators.
+Function decorators follow Python's application semantics:
+
+```python
+def trace(func):
+    def wrapper(x):
+        print("before")
+        result = func(x)
+        print("after")
+        return result
+    return wrapper
+
+@trace
+def double(x):
+    return x * 2
+```
+
+This is equivalent to defining `double`, then rebinding it with `double = trace(double)`. Decorator expressions are evaluated from top to bottom; stacked decorators are applied from bottom to top.
+
+Not supported: variadic arguments (`*args`), keyword-only parameters.
 
 ## 5. Exceptions
 
@@ -161,7 +179,7 @@ sub.run()                        # prints 42
 
 ## 8. Explicitly not writable (rejected at compile time)
 
-`import`, `class`, `del`, list/dict/string methods, decorators, `*args/**kwargs`, chained comparisons, slicing, tuples, f-strings, dunder names, attribute access (except the whitelisted VM handle methods).
+`import`, `class`, `del`, list/dict/string methods, `*args/**kwargs`, chained comparisons, slicing, tuples, f-strings, dunder names, attribute access (except the whitelisted VM handle methods).
 
 ## 9. A complete example
 

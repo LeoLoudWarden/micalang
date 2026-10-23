@@ -236,6 +236,85 @@ class ClosureGrantTests(unittest.TestCase):
         self.assertEqual(run(source), "17\n18\n\n\n")
 
 
+class DecoratorTests(unittest.TestCase):
+    def test_trace_decorator(self):
+        source = (
+            "def trace(func):\n"
+            "    def wrapper(x):\n"
+            "        print('before')\n"
+            "        result = func(x)\n"
+            "        print('after')\n"
+            "        return result\n"
+            "    return wrapper\n"
+            "@trace\n"
+            "def double(x):\n"
+            "    return x * 2\n"
+            "print(double(21))\n"
+        )
+        self.assertEqual(run(source), "before\nafter\n42\n")
+
+    def test_decorator_evaluation_and_application_order(self):
+        source = (
+            "def make(name):\n"
+            "    print('eval', name)\n"
+            "    def decorate(func):\n"
+            "        print('apply', name)\n"
+            "        return func\n"
+            "    return decorate\n"
+            "@make('one')\n"
+            "@make('two')\n"
+            "def value():\n"
+            "    return 42\n"
+            "print(value())\n"
+        )
+        self.assertEqual(
+            run(source), "eval one\neval two\napply two\napply one\n42\n"
+        )
+
+    def test_decorator_expression_reads_closure_cell(self):
+        source = (
+            "def outer():\n"
+            "    label = 'a'\n"
+            "    def expose():\n"
+            "        return label\n"
+            "    def decorate(prefix):\n"
+            "        def wrap(func):\n"
+            "            def wrapped():\n"
+            "                return prefix + func()\n"
+            "            return wrapped\n"
+            "        return wrap\n"
+            "    @decorate(label)\n"
+            "    def value():\n"
+            "        return '1'\n"
+            "    return [value, expose]\n"
+            "result = outer()\n"
+            "print(result[0](), result[1]())\n"
+        )
+        self.assertEqual(run(source), "a1 a\n")
+
+    def test_decorated_nested_function_recurses_through_result(self):
+        source = (
+            "def outer():\n"
+            "    calls = [0]\n"
+            "    def counted(func):\n"
+            "        def wrapped(n):\n"
+            "            calls[0] = calls[0] + 1\n"
+            "            return func(n)\n"
+            "        return wrapped\n"
+            "    @counted\n"
+            "    def down(n):\n"
+            "        if n == 0:\n"
+            "            return 0\n"
+            "        return down(n - 1)\n"
+            "    def read_calls():\n"
+            "        return calls[0]\n"
+            "    return [down, read_calls]\n"
+            "result = outer()\n"
+            "print(result[0](3), result[1]())\n"
+        )
+        self.assertEqual(run(source), "0 4\n")
+
+
 class ClosureRuntimeTests(unittest.TestCase):
     def test_snapshot_unwraps_cells(self):
         engine = SericiteEngine()

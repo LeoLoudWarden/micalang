@@ -98,7 +98,25 @@ print(reader())             # 2
 
 名字在函数内任何位置被赋值，就会在整个函数内作为局部变量。内层赋值因此会遮蔽外层绑定，而不是修改它；不支持 `nonlocal` 和 `global`。模块全局仍从定义方模块解析，不会复制进闭包。
 
-不支持：可变参数（`*args`）、仅关键字参数、装饰器。
+函数装饰器遵循 Python 的应用语义：
+
+```python
+def trace(func):
+    def wrapper(x):
+        print("before")
+        result = func(x)
+        print("after")
+        return result
+    return wrapper
+
+@trace
+def double(x):
+    return x * 2
+```
+
+这等价于先定义 `double`，再执行 `double = trace(double)` 重新绑定。装饰器表达式从上到下求值；堆叠装饰器从下往上应用。
+
+不支持：可变参数（`*args`）、仅关键字参数。
 
 ## 5. 异常
 
@@ -161,7 +179,7 @@ sub.run()                        # 输出 42
 
 ## 8. 明确不能写（编译期直接拒绝）
 
-`import`、`class`、`del`、列表/字典/字符串方法、装饰器、`*args/**kwargs`、链式比较、切片、元组、f-string、双下划线名称、属性访问（VM 句柄的白名单方法除外）。
+`import`、`class`、`del`、列表/字典/字符串方法、`*args/**kwargs`、链式比较、切片、元组、f-string、双下划线名称、属性访问（VM 句柄的白名单方法除外）。
 
 ## 9. 一个完整例子
 

@@ -89,7 +89,7 @@ The instruction figure is a workload-weighted average, not a uniform per-opcode 
 
 - Built-in types: int, float, str, bool, None, list, dict; operators, comparisons, membership, short-circuit logic.
 - Control flow: `if/elif/else`, `while`, `for`, `break/continue`, `try/except/else/finally`, `raise`, ternary expressions.
-- Functions: definitions, recursion, positional and keyword arguments, default arguments, independent call frames, lexical closures with by-reference capture.
+- Functions: definitions, recursion, positional and keyword arguments, default arguments, decorators, independent call frames, lexical closures with by-reference capture.
 - VMs within VMs: any layer can create child VMs; a child cannot tell its depth; the parent can preset files, feed input, single-step (statement- and instruction-level), snapshot, and terminate.
 - Capability granting (FFI): the host injects functions into the root VM; any layer can grant functions to the next layer down; bidirectional deep copy across the host boundary with a pure-data type whitelist.
 - Resource governance: see the previous section. The prototype went through one round of adversarial security review (including an independent third-party perspective); all discovered denial-of-service and information-leak paths were fixed and locked in with regression tests.

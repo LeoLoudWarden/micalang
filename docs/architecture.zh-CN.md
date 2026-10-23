@@ -89,7 +89,7 @@ VM 状态：`ready`、`waiting_input`、`done`、`error`、`resource_exhausted`�
 
 - 内建类型：int、float、str、bool、None、list、dict；运算符、比较、成员判断、短路逻辑。
 - 控制流：`if/elif/else`、`while`、`for`、`break/continue`、`try/except/else/finally`、`raise`、三元表达式。
-- 函数：定义、递归、位置与关键字参数、默认参数、独立调用帧、按引用捕获的词法闭包。
+- 函数：定义、递归、位置与关键字参数、默认参数、装饰器、独立调用帧、按引用捕获的词法闭包。
 - VM 套 VM：任意层可创建子 VM，子 VM 不感知层深；父 VM 可给子 VM 预置文件、喂输入、单步调试（语句级与指令级）、快照、终止。
 - 能力授予（FFI）：宿主向 root VM 注入函数，任意层 VM 向下一层授予函数；跨宿主边界双向深拷贝、纯数据类型白名单。
 - 资源治理：见上节。原型经过一轮对抗性安全审查（含独立第三方视角），审查发现的拒绝服务与信息泄漏路径均已修复并固化回归测试。

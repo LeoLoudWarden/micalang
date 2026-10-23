@@ -147,6 +147,8 @@ class _ScopeCollector(ast.NodeVisitor):
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         self.scope.bound[node.name] = None
+        for decorator in node.decorator_list:
+            self.visit(decorator)
         for default in node.args.defaults:
             self.visit(default)
         params = [argument.arg for argument in node.args.args]
@@ -380,8 +382,6 @@ def _validate(tree: ast.Module, filename: str) -> None:
                     filename,
                     f"builtin '{node.name}' cannot be redefined",
                 )
-            if node.decorator_list:
-                _reject(node, filename, "decorators are not supported")
             args = node.args
             if (
                 args.kw_defaults
@@ -562,6 +562,16 @@ class _Compiler:
             self.emit(child, isa.LOAD_CONST, None, 0)
             self.emit(child, isa.RETURN, None, 0)
             _analyze_stack(child, self._filename)
+            decorators: list[tuple[str, int]] = []
+            for decorator in node.decorator_list:
+                decorator_name = f"$decorator_{self._tmp_counter}"
+                self._tmp_counter += 1
+                decorator_line = getattr(decorator, "lineno", line)
+                self.compile_expression(decorator, code)
+                self.emit(
+                    code, isa.STORE_NAME, decorator_name, decorator_line
+                )
+                decorators.append((decorator_name, decorator_line))
             for default in node.args.defaults:
                 self.compile_expression(default, code)
             self.emit(
@@ -570,6 +580,18 @@ class _Compiler:
                 (child, len(node.args.defaults)),
                 line,
             )
+            if decorators:
+                target_name = f"$decorated_{self._tmp_counter}"
+                self._tmp_counter += 1
+                self.emit(code, isa.STORE_NAME, target_name, line)
+                for decorator_name, decorator_line in reversed(decorators):
+                    self.emit(
+                        code, isa.LOAD_NAME, decorator_name, decorator_line
+                    )
+                    self.emit(code, isa.LOAD_NAME, target_name, line)
+                    self.emit(code, isa.CALL, 1, decorator_line)
+                    self.emit(code, isa.STORE_NAME, target_name, line)
+                self.emit(code, isa.LOAD_NAME, target_name, line)
             self._store_name(code, node.name, line)
             return
         if isinstance(node, ast.Return):
