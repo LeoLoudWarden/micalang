@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-10-24
+
 ### Security
 - 不变量 16 补全两条遗漏通道：外来代码在子 VM 的报错中，参数名替换为位置序号（`argument 1`、`missing argument(s): 2`），带注解赋值（`CHECK_ANNOT`）的注解标签同样按 `origin_vm` 擦除。
 - 契约检查补齐计费：record 构造、字段写入、`wrap()` 的逐字段契约检查按 schema 规模计入指令配额（此前大 schema 契约可放大宿主 CPU 60–70×）。
