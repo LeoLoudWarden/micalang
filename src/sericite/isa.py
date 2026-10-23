@@ -63,5 +63,7 @@ class CodeUnit:
     free_names: tuple[str, ...] = ()
     param_labels: tuple = ()
     return_label: str | None = None
+    # 编译本代码单元的 VM id；标签/定义方名字只对本 VM 可见（不变量 16）。
+    origin_vm: int = -1
     instrs: list[Instr] = field(default_factory=list)
     handlers: list[Handler] = field(default_factory=list)

@@ -19,7 +19,8 @@ By design promise (and covered by regression tests), a script inside a VM:
 - **cannot tell** how deeply it is nested; error and debug views contain only logical source locations and safe values — no host tracebacks or real paths leak through;
 - **cannot bypass** resource quotas: instruction count, output bytes, call depth, child VM count, nesting depth, container sizes, string bytes, integer bit width, approximate total memory, file count and per-file bytes are all capped, and a child VM's consumption is charged to all its ancestors;
 - **cannot swallow** `resource_exhausted` or `internal_error` — these two kinds are not catchable by script try/except, so quotas cannot be eaten by the script;
-- **cannot receive** raw host exceptions: exceptions crossing the host boundary are sanitized into `ffi_error`, carrying only the host exception's type name.
+- **cannot receive** raw host exceptions: exceptions crossing the host boundary are sanitized into `ffi_error`, carrying only the host exception's type name;
+- **cannot see** other layers' names: records/schemas carry no names; compile-time labels such as class names and annotation names are visible only in the error messages of the VM that defined them. A granted function reporting an error inside your VM does so under its granted name with structural descriptions — definition-side function names and type labels never appear.
 
 Isolation holds on the premise of a single execution path: all VMs are driven by the same engine through one dispatch loop, and scripts cannot reach the host around the compiler's whitelist.
 
@@ -31,11 +32,14 @@ Each of the following matters equally; evaluate them before use:
 2. **Host function execution time and memory are not metered.** FFI functions are trusted code; their CPU/memory cost is the host's own discipline. A malicious or runaway host function is outside quota coverage.
 3. **The cost model is approximate.** Memory accounting uses approximate byte counts and only ever increases (high-water mark); O(n) operations are charged to the instruction count at a discounted rate. It defends against *unbounded growth*, not exact measurement.
 4. **Default quotas are not safe values.** Defaults target development and debugging; tighten them explicitly when running untrusted code.
-5. **Granting a function also grants its definition-side state.** A sericite function granted between VMs retains by reference its defining module variables, closure cells, and already-granted function environment. If that function returns or mutates a mutable object from those environments, the calling VM can affect definition-side state. Grant only functions and state the child VM is allowed to influence.
+5. **Granting a function also grants its definition-side state.** A sericite function granted between VMs retains by reference its defining module variables, closure cells, and already-granted function environment. If that function returns or mutates a mutable object from those environments, the calling VM can affect definition-side state. Grant only functions and state the child VM is allowed to influence. Likewise, records passed across VMs through granted functions travel by reference — handing out a record shares its mutable payload.
+6. **Builtins belong to the VM that executes them.** A function value carries its definition-side data environment (module variables, closures), but builtins such as `print`/`read_file` always resolve against the *currently executing* VM: when your VM calls a function handed up from a child VM, its `read_file` reads and writes **your** virtual filesystem, and its instructions and memory are charged to your quotas. Calling a foreign function means personally lending it your world — symmetric with downward granting, where your call is the visible door. Only call functions you are willing to run under your own name.
 
 ## 4. Review so far
 
 Before 0.1.0 the prototype went through one round of adversarial security review (independent internal audit plus a third-party perspective), with the scenario set as "an LLM produces arbitrary malicious code executed via `sericite_exec`". Coverage: isolation escape (whitelist / dunder / attribute access), denial of service (unbounded resource growth, snapshot amplification, compounding via tree-shaped child-VM creation), information leak (FFI messages, error views, snapshot contents), compile-time attacks (recursion stack overflow, oversized source). All findings were fixed and pinned with regression tests.
+
+The 0.4.0 release (records and annotation contracts) received a follow-up differential review to the same standard, covering: closedness of attribute dispatch, cross-VM label leakage, quota accounting of contract checks, and host-internal information leaks. Its findings were fixed in 0.4.1 and pinned with regression tests (see CHANGELOG).
 
 For responsible disclosure, concrete attack payloads are not listed in public documents. If you need to evaluate whether a class of attack is covered, open an issue or ask privately (next section).
 

@@ -20,9 +20,15 @@ RESERVED_NAMES = {
     "path_exists",
     "keys",
     "any",
+    "bool",
+    "list",
+    "dict",
     "wrap",
     "unwrap",
 }
+
+# 只能出现在注解位的契约名（不是函数，不可调用）。
+_CONTRACT_ONLY_NAMES = {"any", "bool", "list", "dict"}
 
 _ALLOWED_NODES = {
     ast.Module,
@@ -349,18 +355,14 @@ def _analyze_stack(code: isa.CodeUnit, filename: str) -> None:
             handler.stack_depth = start_depth
 
 
-def _in_annotation(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> bool:
-    current = node
-    while current in parents:
-        parent = parents[current]
-        if isinstance(parent, ast.arg) and parent.annotation is current:
-            return True
-        if isinstance(parent, ast.AnnAssign) and parent.annotation is current:
-            return True
-        if isinstance(parent, ast.FunctionDef) and parent.returns is current:
-            return True
-        current = parent
-    return False
+def _is_annotation_name(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> bool:
+    """该名字是否*就是*注解表达式本身。藏在意解子表达式里的保留名不放行。"""
+    parent = parents.get(node)
+    if isinstance(parent, ast.arg) and parent.annotation is node:
+        return True
+    if isinstance(parent, ast.AnnAssign) and parent.annotation is node:
+        return True
+    return isinstance(parent, ast.FunctionDef) and parent.returns is node
 
 
 def _validate(tree: ast.Module, filename: str) -> None:
@@ -382,25 +384,26 @@ def _validate(tree: ast.Module, filename: str) -> None:
         if isinstance(node, ast.Name):
             if node.id.startswith("__"):
                 _reject(node, filename, "dunder names are not available")
-            if node.id in RESERVED_NAMES:
-                parent = parents.get(node)
-                if node.id == "any":
-                    if isinstance(parent, ast.Call) and parent.func is node:
+            parent = parents.get(node)
+            # class 体的裸字段声明是字段名，不是名字引用
+            is_bare_field = isinstance(parent, ast.Expr) and isinstance(
+                parents.get(parent), ast.ClassDef
+            )
+            if node.id in RESERVED_NAMES and not is_bare_field:
+                is_call_func = (
+                    isinstance(parent, ast.Call) and parent.func is node
+                )
+                if node.id in _CONTRACT_ONLY_NAMES:
+                    if not _is_annotation_name(node, parents):
                         _reject(
                             node,
                             filename,
-                            "'any' is a contract, not a function",
-                        )
-                    if not _in_annotation(node, parents):
-                        _reject(
-                            node,
-                            filename,
-                            "'any' can only be used as a contract "
+                            f"'{node.id}' can only be used as a contract "
                             "in annotations",
                         )
-                elif not (
-                    isinstance(parent, ast.Call) and parent.func is node
-                ) and not _in_annotation(node, parents):
+                elif not is_call_func and not _is_annotation_name(
+                    node, parents
+                ):
                     _reject(
                         node,
                         filename,

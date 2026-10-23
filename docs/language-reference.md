@@ -1,6 +1,6 @@
 # Sericite Language Reference
 
-Sericite is a scripting language whose syntax is a subset of Python — it reads like Python, but **not every Python construct is legal**, and some semantics have their own rules. This document is self-contained: read it and you can start writing. It describes the language behavior of Sericite 0.4.0.
+Sericite is a scripting language whose syntax is a subset of Python — it reads like Python, but **not every Python construct is legal**, and some semantics have their own rules. This document is self-contained: read it and you can start writing. It describes the language behavior of Sericite 0.4.1.
 
 ## 1. What it looks like
 
@@ -161,7 +161,7 @@ print(p.x)               # dot access reads a member
 p.x = 10                 # dot assignment writes, still checked against the field contract
 ```
 
-A class body only allows field declarations, in two forms: `x` (contract `any`, any value) or `y: int` (a specific contract). A contract can be `int/float/str/bool/list/dict`, `any`, or another schema (nested constraint). Defaults, methods, and inheritance are not supported yet.
+A class body only allows field declarations, in two forms: `x` (contract `any`, any value) or `y: int` (a specific contract). A contract can be `int/float/str/bool/list/dict`, `any`, or another schema (nested constraint). `any/bool/list/dict` are annotation-only contract names — they cannot be called or assigned; `int/float/str` remain conversion builtins. Defaults, methods, and inheritance are not supported yet.
 
 Record semantics:
 
@@ -220,7 +220,7 @@ A granted sericite function retains its definition-side module variables, closur
 
 ## 9. Explicitly not writable (rejected at compile time)
 
-`import`, `del`, list/dict/string methods, `*args/**kwargs`, chained comparisons, slicing, tuples, f-strings, dunder names, class field defaults/methods/inheritance, bare annotated declarations (`x: T` without a value).
+`import`, `del`, list/dict/string methods, `*args/**kwargs`, chained comparisons, slicing, tuples, f-strings, dunder names, class field defaults/methods/inheritance, bare annotated declarations (`x: T` without a value). Builtin names (`print`/`len`/`wrap` etc.) and contract names (`any/bool/list/dict`) cannot be rebound; contract names may only appear in annotation positions.
 
 ## 10. A complete example
 

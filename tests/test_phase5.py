@@ -71,10 +71,9 @@ class SecurityQuotaTests(unittest.TestCase):
         self.assertEqual(snapshot["locals"]["l"], ["[...]"])
 
     def test_cyclic_foreign_equality_contained(self):
+        # 环状结构比较经 (id, id) 记忆化收敛为余归纳相等，不再耗尽递归
         source = "a = [None]\na[0] = a\nb = [None]\nb[0] = b\nprint(a == b)\n"
-        with self.assertRaises(SericiteError) as ctx:
-            run(source)
-        self.assertEqual(ctx.exception.kind, "resource_exhausted")
+        self.assertEqual(run(source), "True\n")
 
     def test_ffi_deeply_nested_argument_rejected(self):
         value = 1

@@ -480,6 +480,180 @@ class ClosureAndVMTests(unittest.TestCase):
         self.assertIn("h() missing argument(s): b", out)
         self.assertNotIn("two_args", out)
 
+    def test_nested_helper_attr_hint_erased_in_child_vm(self):
+        source = (
+            "class Secret:\n"
+            "    password: str\n"
+            "def helper(r: Secret):\n"
+            "    return r.nosuch\n"
+            "def leak(r):\n"
+            "    return helper(r)\n"
+            "sub = VM(\"\"\"\n"
+            "class C:\n"
+            "    password: str\n"
+            "try:\n"
+            "    leak(C('x'))\n"
+            "except attribute_error as e:\n"
+            "    print(e)\n"
+            "\"\"\", functions={'leak': leak})\n"
+            "print(sub.run())\n"
+        )
+        out = run(source)
+        self.assertIn("record {password: str} has no field 'nosuch'", out)
+        self.assertNotIn("Secret", out)
+        self.assertNotIn("helper", out)
+
+    def test_nested_helper_param_contract_erased_in_child_vm(self):
+        source = (
+            "class Secret:\n"
+            "    password: str\n"
+            "def helper(r: Secret):\n"
+            "    return 1\n"
+            "def leak(r):\n"
+            "    return helper(r)\n"
+            "sub = VM(\"\"\"\n"
+            "class D:\n"
+            "    other: int\n"
+            "try:\n"
+            "    leak(D(1))\n"
+            "except contract_error as e:\n"
+            "    print(e)\n"
+            "\"\"\", functions={'leak': leak})\n"
+            "print(sub.run())\n"
+        )
+        out = run(source)
+        self.assertIn("argument r:", out)
+        self.assertIn("expected {password: str}", out)
+        self.assertNotIn("Secret", out)
+        self.assertNotIn("helper", out)
+
+    def test_nested_helper_return_contract_erased_in_child_vm(self):
+        source = (
+            "class Secret:\n"
+            "    password: str\n"
+            "def bad_ret() -> Secret:\n"
+            "    return 5\n"
+            "def leak():\n"
+            "    return bad_ret()\n"
+            "sub = VM(\"\"\"\n"
+            "try:\n"
+            "    leak()\n"
+            "except contract_error as e:\n"
+            "    print(e)\n"
+            "\"\"\", functions={'leak': leak})\n"
+            "print(sub.run())\n"
+        )
+        out = run(source)
+        self.assertIn("return value of function:", out)
+        self.assertIn("expected {password: str}", out)
+        self.assertNotIn("Secret", out)
+        self.assertNotIn("bad_ret", out)
+
+    def test_nested_helper_arity_erased_in_child_vm(self):
+        source = (
+            "def helper(a, b):\n"
+            "    return a\n"
+            "def leak():\n"
+            "    return helper(1)\n"
+            "sub = VM(\"\"\"\n"
+            "try:\n"
+            "    leak()\n"
+            "except arity_error as e:\n"
+            "    print(e)\n"
+            "\"\"\", functions={'leak': leak})\n"
+            "print(sub.run())\n"
+        )
+        out = run(source)
+        self.assertIn("function() missing argument(s): b", out)
+        self.assertNotIn("helper", out)
+
+    def test_native_function_repr_safe(self):
+        out = run('sub = VM("x = 1")\nf = sub.run\nprint(f)\n')
+        self.assertEqual(out, "<function VM.run>\n")
+
+    def test_native_function_type_name_safe(self):
+        exc = run_error('sub = VM("x = 1")\nf = sub.run\nlen(f)\n')
+        self.assertEqual(exc.kind, "type_error")
+        self.assertIn("'function'", exc.message)
+        self.assertNotIn("_NativeFunction", exc.message)
+
+    def test_annotation_smuggling_rejected(self):
+        exc = run_error(
+            "def stash(v):\n"
+            "    return 5\n"
+            "def f(x: stash(print)):\n"
+            "    return x\n"
+        )
+        self.assertEqual(exc.kind, "validation_error")
+
+    def test_bool_list_dict_contracts(self):
+        out = run(
+            "x: bool = True\n"
+            "y: list = [1]\n"
+            "z: dict = {'a': 1}\n"
+            "class C:\n"
+            "    flag: bool\n"
+            "    items: list\n"
+            "    table: dict\n"
+            "c = C(True, [1], {'a': 1})\n"
+            "print(x, y, z, c.flag, c.items, c.table)\n"
+        )
+        self.assertEqual(out, "True [1] {'a': 1} True [1] {'a': 1}\n")
+
+    def test_bool_list_dict_contract_violations(self):
+        exc = run_error("x: bool = 1\n")
+        self.assertEqual(exc.kind, "contract_error")
+        exc = run_error("y: list = {}\n")
+        self.assertEqual(exc.kind, "contract_error")
+        exc = run_error("z: dict = [1]\n")
+        self.assertEqual(exc.kind, "contract_error")
+
+    def test_contract_only_names_reserved(self):
+        for source in ("bool = 5\n", "list = []\n", "dict = {}\n"):
+            exc = run_error(source)
+            self.assertEqual(exc.kind, "validation_error", msg=source)
+        exc = run_error("print(list([1]))\n")
+        self.assertEqual(exc.kind, "validation_error")
+
+    def test_field_named_after_builtin(self):
+        out = run(
+            "class C:\n"
+            "    int\n"
+            "    print\n"
+            "c = C(1, 2)\n"
+            "print(c.int, c.print)\n"
+        )
+        self.assertEqual(out, "1 2\n")
+
+    def test_record_comparison_is_charged(self):
+        limits = SericiteLimits(max_instructions=50000)
+        source = (
+            "class Box:\n"
+            "    items\n"
+            "a = Box(range(100000))\n"
+            "b = Box(range(100000))\n"
+            "print(a == b)\n"
+        )
+        try:
+            run(source, limits=limits)
+        except SericiteError as exc:
+            self.assertEqual(exc.kind, "resource_exhausted")
+        else:
+            raise AssertionError("expected resource_exhausted")
+
+    def test_shared_dag_equality_terminates(self):
+        out = run(
+            "a = [None]\n"
+            "b = [None]\n"
+            "i = 0\n"
+            "while i < 22:\n"
+            "    a = [a, a]\n"
+            "    b = [b, b]\n"
+            "    i = i + 1\n"
+            "print(a == b)\n"
+        )
+        self.assertEqual(out, "True\n")
+
     def test_record_flows_across_vms_by_reference(self):
         source = (
             "class P:\n"

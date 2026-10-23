@@ -1,6 +1,6 @@
 # Sericite 语言参考
 
-Sericite 是一门脚本语言，语法是 Python 的子集——写起来就是 Python，但**不是所有 Python 写法都合法**，而且部分语义有自己的规矩。本文自完备：读完即可开写。本文描述 Sericite 0.4.0 的语言行为。
+Sericite 是一门脚本语言，语法是 Python 的子集——写起来就是 Python，但**不是所有 Python 写法都合法**，而且部分语义有自己的规矩。本文自完备：读完即可开写。本文描述 Sericite 0.4.1 的语言行为。
 
 ## 1. 基本样子
 
@@ -161,7 +161,7 @@ print(p.x)               # 点号读成员
 p.x = 10                 # 点号写成员，仍受字段契约约束
 ```
 
-class 体只允许字段声明，两种形式：`x`（契约 any，任意值）或 `y: int`（指定契约）。契约可以是 `int/float/str/bool/list/dict`、`any`、或另一个 schema（嵌套约束）。暂不支持默认值、方法、继承。
+class 体只允许字段声明，两种形式：`x`（契约 any，任意值）或 `y: int`（指定契约）。契约可以是 `int/float/str/bool/list/dict`、`any`、或另一个 schema（嵌套约束）。其中 `any/bool/list/dict` 是仅注解位的契约名——不可调用、不可赋值；`int/float/str` 同时仍是转换内建。暂不支持默认值、方法、继承。
 
 record 的语义边界：
 
@@ -220,7 +220,7 @@ sub.run()                        # 输出 42
 
 ## 9. 明确不能写（编译期直接拒绝）
 
-`import`、`del`、列表/字典/字符串方法、`*args/**kwargs`、链式比较、切片、元组、f-string、双下划线名称、class 字段默认值/方法/继承、裸注解声明（`x: T` 不赋值）。
+`import`、`del`、列表/字典/字符串方法、`*args/**kwargs`、链式比较、切片、元组、f-string、双下划线名称、class 字段默认值/方法/继承、裸注解声明（`x: T` 不赋值）。内建名（`print`/`len`/`wrap` 等）与契约名（`any/bool/list/dict`）不可重新绑定，契约名只能出现在注解位。
 
 ## 10. 一个完整例子
 

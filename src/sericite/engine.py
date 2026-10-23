@@ -96,14 +96,22 @@ class SericiteFunction:
         return f"<function {self.code.name}>"
 
 
-class _AnyContract:
-    """契约单例：`any`，接受一切值。不参与结构相等以外的任何语义。"""
+class _TagContract:
+    """仅注解位的契约名单例：any / bool / list / dict。不可调用。"""
+
+    __slots__ = ("tag",)
+
+    def __init__(self, tag: str) -> None:
+        self.tag = tag
 
     def __repr__(self) -> str:
-        return "any"
+        return self.tag
 
 
-_ANY = _AnyContract()
+_ANY = _TagContract("any")
+_TAG_CONTRACTS = {
+    name: _TagContract(name) for name in ("bool", "list", "dict")
+}
 
 _CONTRACT_TAGS = ("int", "float", "str", "bool", "list", "dict")
 _TAG_TYPES = {"int": int, "float": float, "str": str, "bool": bool,
@@ -157,8 +165,8 @@ def _contract_text(contract: object, label: str | None = None) -> str:
 
 
 def _normalize_contract(value: object) -> object:
-    if value is _ANY:
-        return "any"
+    if isinstance(value, _TagContract):
+        return value.tag
     if isinstance(value, SericiteSchema):
         return value
     if isinstance(value, _NativeFunction) and value.name in _CONTRACT_TAGS:
@@ -263,10 +271,13 @@ def _make_iterator(value: object) -> _Iterator:
     )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class _NativeFunction:
     name: str
     callback: Callable[..., object]
+
+    def __repr__(self) -> str:
+        return f"<function {self.name}>"
 
 
 @dataclass(frozen=True)
@@ -447,6 +458,7 @@ class SericiteEngine:
         code = compile_source(source, filename)
         vm_id = self._next_vm_id
         self._next_vm_id += 1
+        _stamp_origin(code, vm_id)
         context = VMContext(
             vm_id=vm_id,
             depth=depth,
@@ -730,9 +742,13 @@ class SericiteEngine:
                 stack.pop()
         elif op == isa.LOAD_ATTR:
             attr, hint = arg
+            if frame.code.origin_vm != context.vm_id:
+                hint = None
             stack.append(self._load_attr(context, stack.pop(), attr, hint))
         elif op == isa.STORE_ATTR:
             attr, hint = arg
+            if frame.code.origin_vm != context.vm_id:
+                hint = None
             target = stack.pop()
             value = stack.pop()
             self._store_attr(context, target, attr, value, hint)
@@ -872,8 +888,13 @@ class SericiteEngine:
         kwargs = dict(zip(kw_names, stack[base + argc :]))
         if isinstance(function, SericiteFunction):
             code = function.code
+            visible = code.origin_vm == context.vm_id
             locals_ = self._bind_arguments(
-                code, args, kwargs, function.defaults
+                code,
+                args,
+                kwargs,
+                function.defaults,
+                display_name=None if visible else "function",
             )
             self._check_param_contracts(context, function, locals_)
             if len(context.frames) + 1 > context.limits.max_frames:
@@ -891,7 +912,8 @@ class SericiteEngine:
                     function.closure,
                     function.granted,
                     function.return_contract,
-                    code.return_label,
+                    code.return_label if visible else None,
+                    None if visible else "function",
                 )
             )
             return
@@ -1021,28 +1043,28 @@ class SericiteEngine:
         if not contracts:
             return
         code = function.code
+        # 标签与定义方函数名只在代码的定义 VM 内可见；
+        # 授予函数使用授予名（门上的名字），外来嵌套函数省略名字。
+        visible = code.origin_vm == context.vm_id
         if isinstance(function, _GrantedSericiteFunction):
-            # 跨 VM 边界：子层只应看到门上的名字与结构，
-            # 定义方的函数名与编译期标签不越界。
-            func_name = function.name
-            labels: tuple = (None,) * len(code.params)
-        else:
+            func_name: str | None = function.name
+        elif visible:
             func_name = code.name
-            labels = code.param_labels
-            if len(labels) != len(code.params):
-                labels = (None,) * len(code.params)
+        else:
+            func_name = None
+        labels: tuple = code.param_labels
+        if not visible or len(labels) != len(code.params):
+            labels = (None,) * len(code.params)
         for name, contract, label in zip(code.params, contracts, labels):
             if contract is None:
                 continue
             self._charge_work(context, _contract_cost(contract))
             value = locals_[name]
             if not _contract_holds(value, contract):
-                raise _contract_violation(
-                    f"argument {name} of {func_name}",
-                    label,
-                    contract,
-                    value,
-                )
+                where = f"argument {name}"
+                if func_name is not None:
+                    where += f" of {func_name}"
+                raise _contract_violation(where, label, contract, value)
 
     def _construct_record(
         self,
@@ -1230,6 +1252,8 @@ class SericiteEngine:
             )
         if name == "any":
             return _ANY
+        if name in _TAG_CONTRACTS:
+            return _TAG_CONTRACTS[name]
         if name == "wrap":
             return _NativeFunction(
                 "wrap", lambda schema, data: self._wrap(context, schema, data)
@@ -1560,15 +1584,15 @@ class SericiteEngine:
     def _compare_op(
         self, context: VMContext, op: str, left: object, right: object
     ) -> bool:
-        if op == "==":
-            self._charge_work(context, _container_size(left))
-            return _equals(left, right)
-        if op == "!=":
-            self._charge_work(context, _container_size(left))
-            return not _equals(left, right)
+        if op in ("==", "!="):
+            counter = [1]
+            result = _equals(left, right, set(), counter)
+            self._charge_work(context, counter[0])
+            return result if op == "==" else not result
         if op in ("in", "not in"):
-            self._charge_work(context, _container_size(right))
-            result = _contains(right, left)
+            counter = [1]
+            result = _contains(right, left, set(), counter)
+            self._charge_work(context, counter[0])
             return result if op == "in" else not result
         if (_is_number(left) and _is_number(right)) or (
             type(left) is str and type(right) is str
@@ -1691,6 +1715,7 @@ class SericiteEngine:
                 f"wrap() expects a dict, got {_type_name(data)}",
                 kind="type_error",
             )
+        self._charge_work(context, len(data))
         field_names = {name for name, _ in schema.fields}
         extra = [key for key in data if key not in field_names]
         missing = [name for name in field_names if name not in data]
@@ -1839,6 +1864,21 @@ def _is_number(value: object) -> bool:
     return type(value) in (int, float)
 
 
+def _stamp_origin(code: isa.CodeUnit, vm_id: int) -> None:
+    """给一棵 CodeUnit 树打上编译它的 VM id：标签与定义方名字的可见性依据。"""
+    seen: set[int] = set()
+    units = [code]
+    while units:
+        unit = units.pop()
+        if id(unit) in seen:
+            continue
+        seen.add(id(unit))
+        unit.origin_vm = vm_id
+        for instr in unit.instrs:
+            if instr.op == isa.MAKE_FUNCTION:
+                units.append(instr.arg[0])
+
+
 def _check_grant_name(name: object) -> None:
     if not isinstance(name, str) or not name.isidentifier() or name.startswith("__"):
         raise SericiteError(
@@ -1916,12 +1956,6 @@ def _from_host(
     )
 
 
-def _container_size(value: object) -> int:
-    if isinstance(value, (str, list, dict)):
-        return len(value)
-    return 1
-
-
 def _const_bytes(code: isa.CodeUnit) -> int:
     total = 0
     for instr in code.instrs:
@@ -1963,7 +1997,16 @@ def _truthy(value: object) -> bool:
     return True
 
 
-def _equals(left: object, right: object) -> bool:
+def _equals(
+    left: object,
+    right: object,
+    _pairs: set | None = None,
+    _counter: list | None = None,
+) -> bool:
+    """结构相等。_pairs 按 (id, id) 记忆化已比较/比较中的容器对，
+    共享子结构（DAG）不会重复展开；_counter 累计访问的节点数供配额计费。"""
+    if _counter is not None:
+        _counter[0] += 1
     if left is right:
         return True
     if _is_number(left) and _is_number(right):
@@ -1972,24 +2015,36 @@ def _equals(left: object, right: object) -> bool:
         return False
     if isinstance(left, (str, bool)) or left is None:
         return left == right
-    if type(left) is list:
-        return len(left) == len(right) and all(
-            _equals(a, b) for a, b in zip(left, right)
-        )
-    if type(left) is dict:
-        return left.keys() == right.keys() and all(
-            _equals(left[key], right[key]) for key in left
-        )
-    if isinstance(left, SericiteRecord):
+    if isinstance(left, (list, dict, SericiteRecord)):
+        if _pairs is not None:
+            pair = (id(left), id(right))
+            if pair in _pairs:
+                # 环/共享子结构：比较中或已比较的对视为相等（余归纳语义）
+                return True
+            _pairs.add(pair)
+        if type(left) is list:
+            return len(left) == len(right) and all(
+                _equals(a, b, _pairs, _counter) for a, b in zip(left, right)
+            )
+        if type(left) is dict:
+            return left.keys() == right.keys() and all(
+                _equals(left[key], right[key], _pairs, _counter)
+                for key in left
+            )
         return left.schema.key == right.schema.key and _equals(
-            left.fields, right.fields
+            left.fields, right.fields, _pairs, _counter
         )
     if isinstance(left, SericiteSchema):
         return left.key == right.key
     return left is right
 
 
-def _contains(container: object, item: object) -> bool:
+def _contains(
+    container: object,
+    item: object,
+    _pairs: set | None = None,
+    _counter: list | None = None,
+) -> bool:
     if type(container) is dict:
         if type(item) not in (str, int, float, bool) and item is not None:
             raise SericiteError(
@@ -1998,7 +2053,9 @@ def _contains(container: object, item: object) -> bool:
             )
         return item in container
     if type(container) is list:
-        return any(_equals(element, item) for element in container)
+        return any(
+            _equals(element, item, _pairs, _counter) for element in container
+        )
     if type(container) is str and type(item) is str:
         return item in container
     raise SericiteError(
@@ -2025,14 +2082,16 @@ def _type_name(value: object) -> str:
         return "dict"
     if isinstance(value, SericiteFunction):
         return "function"
+    if isinstance(value, _NativeFunction):
+        return "function"
     if isinstance(value, VMHandle):
         return "VM"
     if isinstance(value, SericiteRecord):
         return "record"
     if isinstance(value, SericiteSchema):
         return "schema"
-    if value is _ANY:
-        return "any"
+    if isinstance(value, _TagContract):
+        return value.tag
     return type(value).__name__
 
 
