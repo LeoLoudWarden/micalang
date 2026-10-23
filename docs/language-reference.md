@@ -1,6 +1,6 @@
 # Sericite Language Reference
 
-Sericite is a scripting language whose syntax is a subset of Python — it reads like Python, but **not every Python construct is legal**, and some semantics have their own rules. This document is self-contained: read it and you can start writing. It describes the language behavior of Sericite 0.3.1.
+Sericite is a scripting language whose syntax is a subset of Python — it reads like Python, but **not every Python construct is legal**, and some semantics have their own rules. This document is self-contained: read it and you can start writing. It describes the language behavior of Sericite 0.4.0.
 
 ## 1. What it looks like
 
@@ -12,7 +12,7 @@ x = input()               # read one line (a string)
 
 ## 2. Types and operators
 
-Built-in types: `int`, `float`, `str`, `bool`, `None`, `list`, `dict`.
+Built-in types: `int`, `float`, `str`, `bool`, `None`, `list`, `dict`, plus user-defined `record`s (see section 7).
 
 ```python
 7 / 2        # 3.5 (division always yields float)
@@ -136,17 +136,56 @@ raise "something wrong"      # raises kind raise_error, catchable
 raise                        # bare raise inside except: re-raise the current error
 ```
 
-Common error kinds: `type_error`, `name_error`, `index_error`, `key_error`, `zero_division`, `conversion_error`, `arity_error`, `raise_error`, `file_not_found`, `ffi_error`. Exceptions propagate across functions. `resource_exhausted` (quota exhaustion) is not catchable.
+Common error kinds: `type_error`, `name_error`, `index_error`, `key_error`, `zero_division`, `conversion_error`, `arity_error`, `raise_error`, `file_not_found`, `ffi_error`, `attribute_error` (missing/forbidden record member), `contract_error` (contract check failed: construction, annotation, wrap, field write). Exceptions propagate across functions. `resource_exhausted` (quota exhaustion) is not catchable.
 
 ## 6. Built-in functions
 
 - `input()` / `print(...)`: read a line / write a line.
 - `len(x)` (str/list/dict), `int(x)`, `float(x)`, `str(x)`, `range(...)` (returns a list), `keys(d)` (returns a list of the dict's keys).
 - Files (text only): `read_file(path)`, `write_file(path, text)`, `list_dir(path)`, `path_exists(path)`. Paths look like `/notes/a.txt`; directories exist implicitly via path prefixes.
+- Records: `wrap(schema, d)`, `unwrap(record)` — see section 7.
 
 **No methods**: list/dict/str have no methods at all — `append`, `get`, `join`, `split`, `strip` do not exist. Append with `lst = lst + [x]`; read dict keys with `d[k] if k in d else default`.
 
-## 7. Creating VMs
+## 7. Records: custom objects with members
+
+`class` defines a **schema** (a structural contract). A schema is a first-class runtime value — the `class` statement creates it each time it executes:
+
+```python
+class Point:
+    x: int
+    y: int
+
+p = Point(1, 2)          # positional construction in declaration order; Point(x=1, y=2) works too
+print(p.x)               # dot access reads a member
+p.x = 10                 # dot assignment writes, still checked against the field contract
+```
+
+A class body only allows field declarations, in two forms: `x` (contract `any`, any value) or `y: int` (a specific contract). A contract can be `int/float/str/bool/list/dict`, `any`, or another schema (nested constraint). Defaults, methods, and inheritance are not supported yet.
+
+Record semantics:
+
+- **Fixed shape**: fields can never be added or removed — reading or writing an unknown field raises `attribute_error`; field values are mutable but must satisfy their contract (violations raise `contract_error`).
+- **Structural equality**: two separately written identical class bodies produce equal schemas; records are equal when their schemas are structurally equal and their payloads are equal; a record never equals a dict — even with the same shape, a dict carries no contract.
+- **Wrap/unwrap**: `unwrap(p)` peels a record into a plain dict (a shallow copy); `wrap(Point, d)` wraps a dict whose keys exactly match the schema into a record (missing/extra keys raise `contract_error` naming them).
+- Records are not indexable, not iterable, not usable as dict keys, and always truthy.
+
+Annotations are **runtime contracts that actually execute** (not static types; there is no static checking):
+
+```python
+def move(p: Point) -> int:
+    return p.x
+
+p: Point = Point(1, 2)
+```
+
+Parameter annotations are checked at call time, return annotations at return time, and annotated assignments at assignment time; the three error messages name the responsible position (argument / return value / annotated assignment). Dicts are never auto-wrapped at annotation positions. The check is **width-based**: an argument record passes as long as it contains every field the expected schema requires, with compatible contracts; extra fields are fine.
+
+Names in error messages are **compile-time, scope-local labels**: a class name or annotation text becomes the display name for related errors in that scope (e.g. `record Point {x: int} has no field 'y'`). Labels never enter values and disappear at scope exit; unlabeled values display structurally (`record {x: int} ...`). Labels are diagnostics only — they play no role in equality or contract checks.
+
+Records and schemas cannot cross the host FFI boundary (a host function receiving a record raises `ffi_error` — `unwrap` first); they pass between parent and child VMs by reference through granted functions, and contract checks still hold across VMs. Only structure crosses VMs: when a granted function reports an error inside a child VM, it does so under the granted name (the key in `functions={"f": ...}`) with structural descriptions — the definition-side function name and type labels never appear in the child's error text.
+
+## 8. Creating VMs
 
 Sericite code can create new VMs, and the code inside a VM is also sericite:
 
@@ -179,11 +218,11 @@ sub.run()                        # prints 42
 
 A granted sericite function retains its definition-side module variables, closure cells, and already-granted functions by reference. Mutable state reachable through those environments is shared capability: only grant functions whose reachable state the child VM may observe or modify.
 
-## 8. Explicitly not writable (rejected at compile time)
+## 9. Explicitly not writable (rejected at compile time)
 
-`import`, `class`, `del`, list/dict/string methods, `*args/**kwargs`, chained comparisons, slicing, tuples, f-strings, dunder names, attribute access (except the whitelisted VM handle methods).
+`import`, `del`, list/dict/string methods, `*args/**kwargs`, chained comparisons, slicing, tuples, f-strings, dunder names, class field defaults/methods/inheritance, bare annotated declarations (`x: T` without a value).
 
-## 9. A complete example
+## 10. A complete example
 
 ```python
 def count_words(path):

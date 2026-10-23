@@ -19,11 +19,15 @@ RESERVED_NAMES = {
     "list_dir",
     "path_exists",
     "keys",
+    "any",
+    "wrap",
+    "unwrap",
 }
 
 _ALLOWED_NODES = {
     ast.Module,
     ast.Assign,
+    ast.AnnAssign,
     ast.Expr,
     ast.If,
     ast.IfExp,
@@ -32,6 +36,7 @@ _ALLOWED_NODES = {
     ast.Break,
     ast.Continue,
     ast.FunctionDef,
+    ast.ClassDef,
     ast.Return,
     ast.Raise,
     ast.Pass,
@@ -151,6 +156,11 @@ class _ScopeCollector(ast.NodeVisitor):
             self.visit(decorator)
         for default in node.args.defaults:
             self.visit(default)
+        for argument in node.args.args:
+            if argument.annotation is not None:
+                self.visit(argument.annotation)
+        if node.returns is not None:
+            self.visit(node.returns)
         params = [argument.arg for argument in node.args.args]
         child = _Scope(
             node,
@@ -163,6 +173,14 @@ class _ScopeCollector(ast.NodeVisitor):
             child.bound[param] = None
         for statement in node.body:
             collector.visit(statement)
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        # 类名绑定到当前作用域；字段名不是作用域内的名字，
+        # 只有字段契约注解在定义处求值（可能引用外层名字）。
+        self.scope.bound[node.name] = None
+        for statement in node.body:
+            if isinstance(statement, ast.AnnAssign):
+                self.visit(statement.annotation)
 
     def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
         if node.name is not None:
@@ -262,6 +280,8 @@ _STACK_DELTAS = {
     isa.STORE_INDEX: -3,
     isa.UNARY_OP: 0,
     isa.LOAD_ATTR: 0,
+    isa.STORE_ATTR: -2,
+    isa.CHECK_ANNOT: -1,
 }
 
 
@@ -296,8 +316,10 @@ def _analyze_stack(code: isa.CodeUnit, filename: str) -> None:
                 delta = 1 - instr.arg
             elif instr.op == isa.BUILD_DICT:
                 delta = 1 - 2 * instr.arg
+            elif instr.op == isa.MAKE_SCHEMA:
+                delta = 1 - len(instr.arg)
             elif instr.op == isa.MAKE_FUNCTION:
-                delta = 1 - instr.arg[1]
+                delta = 1 - (instr.arg[1] + instr.arg[2])
             elif instr.op == isa.CALL:
                 delta = -instr.arg
             elif instr.op == isa.CALL_KW:
@@ -327,6 +349,20 @@ def _analyze_stack(code: isa.CodeUnit, filename: str) -> None:
             handler.stack_depth = start_depth
 
 
+def _in_annotation(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> bool:
+    current = node
+    while current in parents:
+        parent = parents[current]
+        if isinstance(parent, ast.arg) and parent.annotation is current:
+            return True
+        if isinstance(parent, ast.AnnAssign) and parent.annotation is current:
+            return True
+        if isinstance(parent, ast.FunctionDef) and parent.returns is current:
+            return True
+        current = parent
+    return False
+
+
 def _validate(tree: ast.Module, filename: str) -> None:
     parents: dict[ast.AST, ast.AST] = {}
     for parent in ast.walk(tree):
@@ -348,7 +384,23 @@ def _validate(tree: ast.Module, filename: str) -> None:
                 _reject(node, filename, "dunder names are not available")
             if node.id in RESERVED_NAMES:
                 parent = parents.get(node)
-                if not (isinstance(parent, ast.Call) and parent.func is node):
+                if node.id == "any":
+                    if isinstance(parent, ast.Call) and parent.func is node:
+                        _reject(
+                            node,
+                            filename,
+                            "'any' is a contract, not a function",
+                        )
+                    if not _in_annotation(node, parents):
+                        _reject(
+                            node,
+                            filename,
+                            "'any' can only be used as a contract "
+                            "in annotations",
+                        )
+                elif not (
+                    isinstance(parent, ast.Call) and parent.func is node
+                ) and not _in_annotation(node, parents):
                     _reject(
                         node,
                         filename,
@@ -357,11 +409,72 @@ def _validate(tree: ast.Module, filename: str) -> None:
         if isinstance(node, ast.Attribute):
             if node.attr.startswith("__"):
                 _reject(node, filename, "dunder attributes are not available")
-            if node.attr not in VM_METHODS:
-                _reject(node, filename, f"unsupported attribute: {node.attr}")
+        if isinstance(node, ast.ClassDef):
+            if node.name.startswith("__"):
+                _reject(node, filename, "dunder names are not available")
+            if node.name in RESERVED_NAMES:
+                _reject(
+                    node,
+                    filename,
+                    f"builtin '{node.name}' cannot be redefined",
+                )
+            if node.bases or node.keywords or node.decorator_list:
+                _reject(
+                    node,
+                    filename,
+                    "class does not support bases, keywords, or decorators",
+                )
+            seen: set[str] = set()
+            for statement in node.body:
+                if isinstance(statement, ast.Pass):
+                    continue
+                if isinstance(statement, ast.Expr) and isinstance(
+                    statement.value, ast.Name
+                ):
+                    field_name = statement.value.id
+                elif isinstance(statement, ast.Assign) or (
+                    isinstance(statement, ast.AnnAssign)
+                    and statement.value is not None
+                ):
+                    _reject(
+                        statement,
+                        filename,
+                        "field defaults are not supported yet",
+                    )
+                elif (
+                    isinstance(statement, ast.AnnAssign)
+                    and statement.simple
+                    and isinstance(statement.target, ast.Name)
+                ):
+                    field_name = statement.target.id
+                else:
+                    _reject(
+                        statement,
+                        filename,
+                        "class body only allows field declarations",
+                    )
+                if field_name in seen:
+                    _reject(
+                        statement,
+                        filename,
+                        f"duplicate field: {field_name}",
+                    )
+                seen.add(field_name)
+        if isinstance(node, ast.AnnAssign):
             parent = parents.get(node)
-            if not (isinstance(parent, ast.Call) and parent.func is node):
-                _reject(node, filename, "VM methods can only be called directly")
+            if not isinstance(parent, ast.ClassDef):
+                if not isinstance(node.target, ast.Name):
+                    _reject(
+                        node,
+                        filename,
+                        "annotated assignment target must be a name",
+                    )
+                if node.value is None:
+                    _reject(
+                        node,
+                        filename,
+                        "annotated assignment requires a value",
+                    )
         if isinstance(node, ast.keyword) and node.arg is None:
             _reject(node, filename, "** arguments are not supported")
         if isinstance(node, ast.Dict) and any(key is None for key in node.keys):
@@ -405,15 +518,19 @@ def _validate(tree: ast.Module, filename: str) -> None:
             _reject(node, filename, "chained comparisons are not supported")
         if isinstance(node, ast.Assign):
             for target in node.targets:
-                if not isinstance(target, (ast.Name, ast.Subscript)):
+                if not isinstance(
+                    target, (ast.Name, ast.Subscript, ast.Attribute)
+                ):
                     _reject(node, filename, "unsupported assignment target")
             if len(node.targets) > 1 and any(
-                isinstance(target, ast.Subscript) for target in node.targets
+                isinstance(target, (ast.Subscript, ast.Attribute))
+                for target in node.targets
             ):
                 _reject(
                     node,
                     filename,
-                    "multiple targets with subscript are not supported",
+                    "multiple targets with subscript or attribute "
+                    "are not supported",
                 )
 
 
@@ -435,6 +552,27 @@ class _Compiler:
         self._finally_stack: list[list[ast.stmt]] = []
         self._function_depth = 0
         self._tmp_counter = 0
+        # 编译期标签表（仅诊断用）：名字 -> 标签文本，随函数作用域压栈/弹栈。
+        self._label_stack: list[dict[str, str]] = [{}]
+
+    def _propagate_label(self, name: str, value: ast.AST) -> None:
+        labels = self._label_stack[-1]
+        source: str | None = None
+        if isinstance(value, ast.Name):
+            source = labels.get(value.id)
+        elif isinstance(value, ast.Call) and isinstance(
+            value.func, ast.Name
+        ):
+            source = labels.get(value.func.id)
+        if source is None:
+            labels.pop(name, None)
+        else:
+            labels[name] = source
+
+    def _attr_hint(self, value: ast.AST) -> str | None:
+        if isinstance(value, ast.Name):
+            return self._label_stack[-1].get(value.id)
+        return None
 
     def _store_name(self, code: isa.CodeUnit, name: str, line: int) -> None:
         op = isa.STORE_DEREF if name in code.cell_names else isa.STORE_NAME
@@ -472,14 +610,33 @@ class _Compiler:
                 self.emit(code, isa.DUP, None, line)
                 assert isinstance(target, ast.Name)
                 self._store_name(code, target.id, line)
+                self._propagate_label(target.id, node.value)
             last = targets[-1]
             if isinstance(last, ast.Name):
                 self._store_name(code, last.id, line)
+                self._propagate_label(last.id, node.value)
+            elif isinstance(last, ast.Attribute):
+                self.compile_expression(last.value, code)
+                self.emit(
+                    code,
+                    isa.STORE_ATTR,
+                    (last.attr, self._attr_hint(last.value)),
+                    line,
+                )
             else:
                 assert isinstance(last, ast.Subscript)
                 self.compile_expression(last.value, code)
                 self.compile_expression(last.slice, code)
                 self.emit(code, isa.STORE_INDEX, None, line)
+            return
+        if isinstance(node, ast.AnnAssign):
+            label = ast.unparse(node.annotation)
+            self.compile_expression(node.value, code)
+            self.compile_expression(node.annotation, code)
+            self.emit(code, isa.CHECK_ANNOT, label, line)
+            assert isinstance(node.target, ast.Name)
+            self._store_name(code, node.target.id, line)
+            self._label_stack[-1][node.target.id] = label
             return
         if isinstance(node, ast.Expr):
             self.compile_expression(node.value, code)
@@ -543,21 +700,41 @@ class _Compiler:
             return
         if isinstance(node, ast.FunctionDef):
             analyzed = self._scopes[id(node)].code
+            param_labels = tuple(
+                ast.unparse(argument.annotation)
+                if argument.annotation is not None
+                else None
+                for argument in node.args.args
+            )
             child = isa.CodeUnit(
                 name=analyzed.name,
                 params=analyzed.params,
                 local_names=analyzed.local_names,
                 cell_names=analyzed.cell_names,
                 free_names=analyzed.free_names,
+                param_labels=param_labels,
+                return_label=(
+                    ast.unparse(node.returns)
+                    if node.returns is not None
+                    else None
+                ),
             )
             self._function_depth += 1
             loop_stack, self._loops = self._loops, []
             finally_stack, self._finally_stack = self._finally_stack, []
+            self._label_stack.append(
+                {
+                    argument.arg: label
+                    for argument, label in zip(node.args.args, param_labels)
+                    if label is not None
+                }
+            )
             try:
                 self.compile_body(node.body, child)
             finally:
                 self._loops = loop_stack
                 self._finally_stack = finally_stack
+                self._label_stack.pop()
                 self._function_depth -= 1
             self.emit(child, isa.LOAD_CONST, None, 0)
             self.emit(child, isa.RETURN, None, 0)
@@ -574,10 +751,19 @@ class _Compiler:
                 decorators.append((decorator_name, decorator_line))
             for default in node.args.defaults:
                 self.compile_expression(default, code)
+            for argument in node.args.args:
+                if argument.annotation is not None:
+                    self.compile_expression(argument.annotation, code)
+                else:
+                    self.emit(code, isa.LOAD_CONST, None, line)
+            if node.returns is not None:
+                self.compile_expression(node.returns, code)
+            else:
+                self.emit(code, isa.LOAD_CONST, None, line)
             self.emit(
                 code,
                 isa.MAKE_FUNCTION,
-                (child, len(node.args.defaults)),
+                (child, len(node.args.defaults), len(node.args.args) + 1),
                 line,
             )
             if decorators:
@@ -613,6 +799,24 @@ class _Compiler:
             return
         if isinstance(node, ast.Try):
             self._compile_try(node, code)
+            return
+        if isinstance(node, ast.ClassDef):
+            names: list[str] = []
+            for statement in node.body:
+                if isinstance(statement, ast.Pass):
+                    continue
+                if isinstance(statement, ast.Expr):
+                    names.append(statement.value.id)  # type: ignore[union-attr]
+                    self.emit(
+                        code, isa.LOAD_NAME, "any", statement.lineno
+                    )
+                else:
+                    assert isinstance(statement, ast.AnnAssign)
+                    names.append(statement.target.id)  # type: ignore[union-attr]
+                    self.compile_expression(statement.annotation, code)
+            self.emit(code, isa.MAKE_SCHEMA, tuple(names), line)
+            self._store_name(code, node.name, line)
+            self._label_stack[-1][node.name] = node.name
             return
         raise SericiteError(
             f"unsupported statement: {type(node).__name__}",
@@ -784,7 +988,12 @@ class _Compiler:
             return
         if isinstance(node, ast.Attribute):
             self.compile_expression(node.value, code)
-            self.emit(code, isa.LOAD_ATTR, node.attr, line)
+            self.emit(
+                code,
+                isa.LOAD_ATTR,
+                (node.attr, self._attr_hint(node.value)),
+                line,
+            )
             return
         if isinstance(node, ast.Call):
             self.compile_expression(node.func, code)

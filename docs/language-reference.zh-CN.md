@@ -1,6 +1,6 @@
 # Sericite 语言参考
 
-Sericite 是一门脚本语言，语法是 Python 的子集——写起来就是 Python，但**不是所有 Python 写法都合法**，而且部分语义有自己的规矩。本文自完备：读完即可开写。本文描述 Sericite 0.3.1 的语言行为。
+Sericite 是一门脚本语言，语法是 Python 的子集——写起来就是 Python，但**不是所有 Python 写法都合法**，而且部分语义有自己的规矩。本文自完备：读完即可开写。本文描述 Sericite 0.4.0 的语言行为。
 
 ## 1. 基本样子
 
@@ -12,7 +12,7 @@ x = input()               # 读入一行（字符串）
 
 ## 2. 类型与运算
 
-内建类型：`int`、`float`、`str`、`bool`、`None`、`list`、`dict`。
+内建类型：`int`、`float`、`str`、`bool`、`None`、`list`、`dict`，以及自定义的 `record`（见第 7 节）。
 
 ```python
 7 / 2        # 3.5（除法恒为浮点）
@@ -136,17 +136,56 @@ raise "出问题了"             # 抛出 raise_error 类型，可捕获
 raise                        # 在 except 块内裸 raise：重新抛出当前错误
 ```
 
-常见错误类型（kind）：`type_error`、`name_error`、`index_error`、`key_error`、`zero_division`、`conversion_error`、`arity_error`、`raise_error`、`file_not_found`、`ffi_error`。异常可跨函数传播。`resource_exhausted`（资源耗尽）不可捕获。
+常见错误类型（kind）：`type_error`、`name_error`、`index_error`、`key_error`、`zero_division`、`conversion_error`、`arity_error`、`raise_error`、`file_not_found`、`ffi_error`、`attribute_error`（record 缺成员/新增字段）、`contract_error`（契约检查失败：构造、注解、wrap、字段写入）。异常可跨函数传播。`resource_exhausted`（资源耗尽）不可捕获。
 
 ## 6. 内建函数
 
 - `input()` / `print(...)`：一行输入 / 一行输出。
 - `len(x)`（str/list/dict）、`int(x)`、`float(x)`、`str(x)`、`range(...)`（返回 list）、`keys(d)`（返回 dict 键的 list）。
 - 文件（纯文本）：`read_file(path)`、`write_file(path, text)`、`list_dir(path)`、`path_exists(path)`。路径形如 `/notes/a.txt`，目录靠路径前缀隐含。
+- record 相关：`wrap(schema, d)`、`unwrap(record)`，见第 7 节。
 
 **没有方法**：list/dict/str 一律没有方法——`append`、`get`、`join`、`split`、`strip` 全都不存在。追加元素用 `lst = lst + [x]`，取字典键用 `d[k] if k in d else 默认`。
 
-## 7. 创建虚拟机（VM）
+## 7. 记录（record）：自定义含成员的对象
+
+`class` 定义一个 **schema**（结构契约）。schema 是运行期的一等值，`class` 语句每次执行到都会创建它：
+
+```python
+class Point:
+    x: int
+    y: int
+
+p = Point(1, 2)          # 按声明顺序位置构造；也支持 Point(x=1, y=2)
+print(p.x)               # 点号读成员
+p.x = 10                 # 点号写成员，仍受字段契约约束
+```
+
+class 体只允许字段声明，两种形式：`x`（契约 any，任意值）或 `y: int`（指定契约）。契约可以是 `int/float/str/bool/list/dict`、`any`、或另一个 schema（嵌套约束）。暂不支持默认值、方法、继承。
+
+record 的语义边界：
+
+- **形状固定**：字段不可增删——读写不存在的字段报 `attribute_error`；字段值可改，但必须满足字段契约（违反报 `contract_error`）。
+- **结构相等**：两处分别定义的同构 schema 彼此相等；record 相等要求 schema 结构相等且载荷相等；record 与 dict 永不相等——即使形状一样，dict 也没有"检疫章"。
+- **扒皮与套皮**：`unwrap(p)` 把 record 扒成普通 dict（浅拷贝）；`wrap(Point, d)` 把键集与 schema 严格一致的 dict 套上契约变成 record（缺/多键报 `contract_error` 并列明）。
+- record 不可下标、不可迭代、不可做 dict 键，恒为真值。
+
+注解是**真实执行的运行期契约**（不是静态类型，也没有静态检查）：
+
+```python
+def move(p: Point) -> int:
+    return p.x
+
+p: Point = Point(1, 2)
+```
+
+参数注解在调用时检查、返回注解在返回时检查、带注解的赋值在赋值时检查；三类报错的措辞分别指认责任位置（argument / return value / annotated assignment）。dict 不会在注解位自动套皮。检查是**宽度**的：实参 record 只要包含期望 schema 的全部字段且契约兼容即可通过，多余字段允许存在。
+
+报错中的名字是**编译期、作用域本地的标签**：`class Point` 的类名、`p: Point` 的注解文本会成为该作用域内相关报错的显示名（如 `record Point {x: int} has no field 'y'`）。标签不进入值本身，出作用域即失效；没有标签的值按结构显示（`record {x: int} ...`）。标签只用于诊断，不参与任何相等或契约判断。
+
+record 与 schema 不能跨宿主 FFI 边界（授予宿主的函数收到 record 会报 `ffi_error`，先 `unwrap`）；经授予函数在父子 VM 之间按引用传递，契约检查跨 VM 依然成立。跨 VM 的只有结构：授予函数在子 VM 中报错时，使用的是授予时的名字（`functions={"f": ...}` 里的 `f`）与结构描述，定义方的函数名和类型标签不会出现在子层的报错文本中。
+
+## 8. 创建虚拟机（VM）
 
 在 sericite 里可以创建新的 VM，VM 内跑的代码语法也还是 sericite：
 
@@ -179,11 +218,11 @@ sub.run()                        # 输出 42
 
 被授予的 sericite 函数按引用保留定义方的模块变量、闭包 cell 与已授予函数环境。这些环境中可达的可变状态属于共享能力：只应授予允许子 VM 读取或修改其可达状态的函数。
 
-## 8. 明确不能写（编译期直接拒绝）
+## 9. 明确不能写（编译期直接拒绝）
 
-`import`、`class`、`del`、列表/字典/字符串方法、`*args/**kwargs`、链式比较、切片、元组、f-string、双下划线名称、属性访问（VM 句柄的白名单方法除外）。
+`import`、`del`、列表/字典/字符串方法、`*args/**kwargs`、链式比较、切片、元组、f-string、双下划线名称、class 字段默认值/方法/继承、裸注解声明（`x: T` 不赋值）。
 
-## 9. 一个完整例子
+## 10. 一个完整例子
 
 ```python
 def count_words(path):

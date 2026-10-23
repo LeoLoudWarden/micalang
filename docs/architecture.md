@@ -37,10 +37,11 @@ Anyone modifying the engine must preserve the following invariants (numbered for
 9. Sericite value semantics are defined by engine helper functions and do not directly inherit Python operators' implicit behavior (e.g. bool does not participate in arithmetic).
 10. `resource_exhausted` and `internal_error` must not be catchable by script `try/except` — quotas must not be swallowed by scripts.
 11. The VM-handle method whitelist has exactly one source (defined on the compiler side); the engine references it, and the two sides must not diverge.
-12. The host boundary (FFI) must deep-copy in both directions with a type whitelist (None/bool/int/float/str/list/dict, recursive): handles, functions, and host-native objects must never cross; host exceptions must be sanitized into `ffi_error`, with messages containing only the host exception's type name, not its text (to prevent leaking host paths or internal information). Functions granted between VMs are passed by reference within the same engine trust domain, not copied.
+12. The host boundary (FFI) must deep-copy in both directions with a type whitelist (None/bool/int/float/str/list/dict, recursive): handles, functions, records/schemas, and host-native objects must never cross; host exceptions must be sanitized into `ffi_error`, with messages containing only the host exception's type name, not its text (to prevent leaking host paths or internal information). Functions granted between VMs are passed by reference within the same engine trust domain, not copied.
 13. A granted sericite function executes on the **calling VM's frame stack** (instructions charged to the caller and its ancestors), but retains the **defining function's closure cells, the defining VM's module variables, and the defining side's granted-function environment**; the reverse or cross combinations are not allowed. Re-granting must preserve all of these definition-side environments.
 14. Every resource that can grow must have a quota (see next section). `run()` does not take per-statement snapshots — snapshots are only produced on explicit `step()/snapshot()` calls; the debugging path must not become a resource bypass. Host `RecursionError` is always converted to `resource_exhausted`, `OverflowError` to `conversion_error`; host exceptions must never leak to scripts or callers in native form. O(n)-and-above operations must be charged against the instruction quota at a scale-proportional rate, and newly created objects must be accounted.
 15. The dispatch entry has re-entrancy protection: the same VM must not be driven by two dispatch loops at once (e.g. the host calling `step()` on the same VM from inside an `input_provider`/FFI callback).
+16. Only structure crosses VMs: records/schemas carry no names (schema equality compares the structure of field sets and contracts); class names, annotation names, and other labels are compile-time, scope-local diagnostic data, baked only into the current layer's CodeUnit instructions and metadata, and expire at scope exit. A granted function's errors in the caller VM (parameter/return contracts, arity) must use the granted name and structural descriptions; definition-side function names and labels must not appear in the error text. New value forms or cross-layer channels must likewise guarantee that names do not cross layers with values.
 
 ## 4. Script interface
 
@@ -88,6 +89,7 @@ The instruction figure is a workload-weighted average, not a uniform per-opcode 
 ## 7. Current prototype capability overview
 
 - Built-in types: int, float, str, bool, None, list, dict; operators, comparisons, membership, short-circuit logic.
+- Records and schemas: `class` defines a runtime structural contract (fields + per-field contracts), dot member access, fixed shape, `wrap`/`unwrap` conversion to and from dicts; annotations (parameters / return / annotated assignment) execute as real runtime contracts with blame-style errors; class and annotation names are compile-time labels used only in error text.
 - Control flow: `if/elif/else`, `while`, `for`, `break/continue`, `try/except/else/finally`, `raise`, ternary expressions.
 - Functions: definitions, recursion, positional and keyword arguments, default arguments, decorators, independent call frames, lexical closures with by-reference capture.
 - VMs within VMs: any layer can create child VMs; a child cannot tell its depth; the parent can preset files, feed input, single-step (statement- and instruction-level), snapshot, and terminate.
@@ -95,7 +97,7 @@ The instruction figure is a workload-weighted average, not a uniform per-opcode 
 - Resource governance: see the previous section. The prototype went through one round of adversarial security review (including an independent third-party perspective); all discovered denial-of-service and information-leak paths were fixed and locked in with regression tests.
 - Every VM has its own private virtual filesystem, configurable before the run and harvestable after.
 
-Deliberate trade-offs: list/dict methods, variadic arguments, chained comparisons, `import`/`class` are not yet supported — these are usability or expressiveness matters, to be added on demand; they do not affect the design's main line.
+Deliberate trade-offs: list/dict methods, variadic arguments, chained comparisons, `import` are not yet supported — these are usability or expressiveness matters, to be added on demand; they do not affect the design's main line.
 
 ## 8. Known limits and semantic deviations
 
@@ -108,4 +110,4 @@ Deliberate trade-offs: list/dict methods, variadic arguments, chained comparison
 
 ## 9. Explicitly not supported yet
 
-List/dict/string methods, variadic/keyword-only parameters, `**` unpacking, chained comparisons, slicing, tuples, f-strings, `import`, `del`, `class`.
+List/dict/string methods, variadic/keyword-only parameters, `**` unpacking, chained comparisons, slicing, tuples, f-strings, `import`, `del`, class field defaults/methods/inheritance.

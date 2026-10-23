@@ -21,6 +21,9 @@ JUMP_IF_FALSE = "JUMP_IF_FALSE"
 JUMP_IF_TRUE_KEEP = "JUMP_IF_TRUE_KEEP"
 JUMP_IF_FALSE_KEEP = "JUMP_IF_FALSE_KEEP"
 LOAD_ATTR = "LOAD_ATTR"
+STORE_ATTR = "STORE_ATTR"
+MAKE_SCHEMA = "MAKE_SCHEMA"
+CHECK_ANNOT = "CHECK_ANNOT"
 MAKE_FUNCTION = "MAKE_FUNCTION"
 GET_ITER = "GET_ITER"
 FOR_ITER = "FOR_ITER"
@@ -58,5 +61,7 @@ class CodeUnit:
     local_names: tuple[str, ...] = ()
     cell_names: tuple[str, ...] = ()
     free_names: tuple[str, ...] = ()
+    param_labels: tuple = ()
+    return_label: str | None = None
     instrs: list[Instr] = field(default_factory=list)
     handlers: list[Handler] = field(default_factory=list)

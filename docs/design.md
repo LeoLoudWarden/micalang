@@ -61,6 +61,18 @@ This design splits security responsibility into two clearly bounded halves:
 - **The engine is responsible for isolation itself holding.** A child VM cannot read or write parent variables or files, cannot tell how deep it is nested, cannot reach host objects or reflection entry points, and cannot bypass resource quotas. That is Sericite's design promise.
 - **The capability's implementer is responsible for the capability's safety.** If you grant a VM a function via FFI, whether that function is safe inside is on you. The engine's philosophy is to keep the kernel minimal — at least not to bury landmines inside itself.
 
+### 3.4 Structure crosses layers; names stay layer-local
+
+The record/schema design (`class` defines a structural contract; dot member access) follows the same discipline as capability granting: **only structure crosses layers; names, capabilities, and state must each enter a layer through a door visible in that layer's own code.**
+
+Three corollaries:
+
+**No nominal types.** Nominal identity is decided by a creation event, and in a world of nested layers and per-layer granting it collides with identity walls everywhere — is the parent VM's `Point` the same type as a child VM's identical `Point`? With structural semantics, schemas compare by field set and contracts, are comparable across layers by nature, and the question dissolves. This also preserves the invariant that sandbox output is enumerable pure data: names never pollute values.
+
+**Labels are compile-time, scope-local diagnostics and never enter values.** A name is a lexical fact, not a fact about a value: once a value escapes the scope that defined it (returned from a factory, passed across VMs), it has no name at all. If values carried long-lived names, an error raised in a child layer would display a symbol that appears nowhere in the child's source — and since a child VM's error messages are data it can catch, that name is an information channel nobody explicitly opened. Worse, a name that travels with values will eventually be used as identity (comparison, dispatch, serialization), and nominal typing returns through the back door. So class names and annotation names live only at compile time, serve only error text, and are erased at scope exit; each layer names things explicitly at its own entry points (`r2: T2 = make()`) — naming is the receiver's local act, not an inheritance shipped with the goods.
+
+**Granted functions respect the same boundary in their errors.** A granted function retains its full definition-side environment when executing in a child VM (that is the explicitly granted capability), but its error text uses only the granted name (the key in `functions={"f": ...}`) and structural descriptions — definition-side function names and type labels never appear in the child layer. The name on the door is part of the door; the internal names of what is behind it are not.
+
 ## 4. Sericite's relationship with LLMs
 
 A common misreading must be corrected: **Sericite is not "a tool for LLMs".**

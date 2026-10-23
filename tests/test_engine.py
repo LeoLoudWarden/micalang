@@ -139,7 +139,7 @@ class ValidationTests(unittest.TestCase):
 
     def test_unsupported_syntax_rejected(self):
         engine = SericiteEngine()
-        for source in ("import os\n", "del x\n", "class A:\n    pass\n"):
+        for source in ("import os\n", "del x\n"):
             with self.assertRaises(SericiteError, msg=source):
                 engine.create_root(source)
 
@@ -159,8 +159,10 @@ class ValidationTests(unittest.TestCase):
 
     def test_unsupported_attribute_rejected(self):
         engine = SericiteEngine()
-        with self.assertRaises(SericiteError):
-            engine.create_root('sub = VM("x = 1")\nsub.evil()\n')
+        vm = engine.create_root('sub = VM("x = 1")\nsub.evil()\n')
+        with self.assertRaises(SericiteError) as ctx:
+            vm.run()
+        self.assertEqual(ctx.exception.kind, "attribute_error")
 
     def test_runtime_error_reported(self):
         engine = SericiteEngine()
