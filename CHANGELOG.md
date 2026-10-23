@@ -7,6 +7,11 @@
 
 ## [Unreleased]
 
+### Added
+- 新增 `benchmarks/vm_creation.py`：VM 创建成本的可复现基准（宿主侧与脚本内两条路径，附线程/进程参照）。实测：脚本内创建子 VM 约 0.05 ms，宿主侧创建+运行全流程约 0.04 ms（Intel i3-9100，CPython 3.13/3.14），与线程同数量级、比进程便宜一到两个数量级；design 文档相应段落由"有待量化验证"更新为实测陈述。
+- 新增 `benchmarks/instruction.py` 与 `benchmarks/debugging.py`：按真实指令计数测量连续执行、逐指令与逐语句调试成本，编译和 VM 创建不计时。在 Intel i3-9100、CPython 3.13.13 上，代表性循环约 0.65 µs/指令，逐指令约 1.86 µs/指令，逐语句约 4.91 µs/次调用；中英文架构文档与 README 同步记录结果。
+- 英文文档补齐：`docs/architecture.md`（架构说明全译）；`docs/`、`docs/stages/`、`docs/behind-the-scenes/`、`demo/` 的索引页按"英文 `.md`、中文 `.zh-CN.md` 单文件不混排"的规范拆分为独立英文版。stages 正文与 behind-the-scenes 长文保持中文（历史文档，翻译成本高、价值低）。
+
 ## [0.2.0] - 2026-10-22
 
 ### Changed

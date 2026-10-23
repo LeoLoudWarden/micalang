@@ -1,66 +1,68 @@
-# 从零构建 Mica
+# Building Mica from Scratch
 
-> **更名说明（2026-10-22）**：本系列成文于项目名为 Mica 的时期，文中 Mica 即今 Sericite（发行包与 CLI 为 `sericite`，扩展名 `.sericite`）。本文为历史构建手记，正文保留当时的名字与命令，阅读时将 `mica`/`micalang` 对应为 `sericite` 即可。
+[中文索引](README.zh-CN.md)
 
-这个系列讲 Mica 0.1.0 是怎么被造出来的：从一个只能执行两条语句的 AST 原型，到有编译器、虚拟文件系统、能力授予、资源配额的引擎，再到一个完整的 LLM 代码执行 demo。每个阶段对应一个 git tag，可以 checkout 下来实际运行。
+> **Rename note (2026-10-22):** this series was written while the project was named Mica; in the articles, Mica means today's Sericite (distribution package and CLI `sericite`, extension `.sericite`). The articles keep the names and commands of their time — just read `mica`/`micalang` as `sericite`. The articles themselves are in Chinese; this page is the English index.
 
-**读这个系列之前，建议先读 [设计说明](../design.zh-CN.md)**——那里讲"为什么"，这里讲"怎么一步步做到"。
+This series tells how Mica 0.1.0 was built: from an AST prototype that could execute two statements, to an engine with a compiler, a virtual filesystem, capability granting, and resource quotas, to a complete LLM code-execution demo. Each stage corresponds to a git tag you can check out and actually run.
 
-## 两份声明
+**Before reading this series, read the [design notes](../design.md) first** — that document is about the "why"; this one is about "how, step by step".
 
-**本系列是重构的教学历史。** 各阶段的代码取自真实开发历史，但提交顺序、文档结构是为了教学重新编排的，不是逐日时间线。原始的开发过程记录见 [behind-the-scenes](../behind-the-scenes/README.md)。
+## Two declarations
 
-**本系列在 0.1.0 冻结。** 文章描述的是 0.1.0 的构建过程，不是当前 API 文档；语言行为以[语言参考](../language-reference.zh-CN.md)为准，当前实现以[架构说明](../architecture.zh-CN.md)为准。后续版本的变化会写进 CHANGELOG，而不是回头改这些文章。
+**This series is a reconstructed teaching history.** The code at each stage comes from the real development history, but the commit order and document structure were rearranged for teaching; it is not a day-by-day timeline. The original development process records are in [behind-the-scenes](../behind-the-scenes/README.md).
 
-## 前置知识
+**This series is frozen at 0.1.0.** The articles describe how 0.1.0 was built; they are not current API documentation. Language behavior is governed by the [language reference](../language-reference.md), and the current implementation by the [architecture notes](../architecture.md). Later changes go into the CHANGELOG, not back into these articles.
 
-- 会写 Python（Mica 的语法是 Python 子集，参考实现也是 Python）。
-- 知道"解释器"大致是什么即可；不需要编译原理背景，用到的概念（指令流、栈式虚拟机、异常表）会在用到时解释。
+## Prerequisites
 
-## 阶段表
+- You can write Python (Mica's syntax is a Python subset, and the reference implementation is Python).
+- A rough idea of what "an interpreter" is suffices; no compiler-theory background needed — the concepts used (instruction streams, stack machines, exception tables) are explained when they come up.
 
-| Stage | 内容 | 结束时能跑什么 | tag |
+## Stage table
+
+| Stage | Content | What runs at the end | tag |
 |---|---|---|---|
-| 0 | 文档初始化：先把设计理念写下来 | —（无代码） | `stage-0` |
-| 1 | 最小闭环：AST 白名单 + 逐语句执行的 VM | `input`/`print`、字符串相加、root VM 创建并单步调试子 VM | `stage-1` |
-| 2 | 真正的引擎：编译为指令流，统一调度循环 | 条件、循环、函数、递归 | `stage-2` |
-| 3 | 工作区：私有虚拟文件系统、VM 生命周期 | 每个 VM 有独立文件空间；运行前配置、运行后取回产出 | `stage-3` |
-| 4 | 数据与能力：dict、FFI 能力授予 | 宿主/父 VM 向下一层授予函数，跨边界双向深拷贝 | `stage-4` |
-| 5 | 安全加固 + 易用性：配额体系、for/try/finally/raise | 对抗性输入下资源可控；语言足以写实际脚本 | `stage-5` |
-| 6 | 尾声：一个真实用例 | HTTP 能力授予 + 多层虚拟化的 LLM 代码执行 demo | `stage-6` |
+| 0 | Documentation first: write down the design ideas | — (no code) | `stage-0` |
+| 1 | Minimal loop: AST whitelist + statement-stepping VM | `input`/`print`, string concatenation, root VM creating and single-stepping a child VM | `stage-1` |
+| 2 | A real engine: compile to instruction stream, unified dispatch loop | conditionals, loops, functions, recursion | `stage-2` |
+| 3 | Workspace: private virtual filesystem, VM lifecycle | each VM has its own file space; preset before the run, harvest after | `stage-3` |
+| 4 | Data and capability: dict, FFI capability granting | host/parent VMs grant functions to the next layer, bidirectional deep copy across boundaries | `stage-4` |
+| 5 | Hardening + usability: quota system, for/try/finally/raise | resources stay bounded under adversarial input; the language suffices for real scripts | `stage-5` |
+| 6 | Finale: a real use case | HTTP capability granting + multi-layer virtualized LLM code-execution demo | `stage-6` |
 
-各阶段文章：
+The stage articles (中文):
 
-1. [Stage 1：最小可用的 VM](01-minimal-vm.zh-CN.md)
-2. [Stage 2：编译器与栈式引擎](02-real-engine.zh-CN.md)
-3. [Stage 3：给每台 VM 一个工作区](03-workspace.zh-CN.md)
-4. [Stage 4：数据结构与能力授予](04-dict-and-ffi.zh-CN.md)
-5. [Stage 5：先查安全，再加语法](05-security-and-usability.zh-CN.md)
-6. [Stage 6：一个真实用例](06-demo.zh-CN.md)
+1. [Stage 1: A Minimal Usable VM](01-minimal-vm.zh-CN.md)
+2. [Stage 2: Compiler and Stack Machine](02-real-engine.zh-CN.md)
+3. [Stage 3: A Workspace for Every VM](03-workspace.zh-CN.md)
+4. [Stage 4: Data Structures and Capability Granting](04-dict-and-ffi.zh-CN.md)
+5. [Stage 5: Security Review First, Then Syntax](05-security-and-usability.zh-CN.md)
+6. [Stage 6: A Real Use Case](06-demo.zh-CN.md)
 
-## 怎么读这个系列
+## How to read this series
 
-这不是六份里程碑汇报，而是六篇连贯的构建教程。每篇都按同一条线索走：
+These are not six milestone reports, but six coherent build tutorials. Each follows the same thread:
 
-上一阶段留下了什么缺口 → 这一步要回答什么问题 → 考虑过哪些走法、为什么选了现在这条 → 一起看关键代码 → 怎么亲手验证它成立。
+what gap the previous stage left → what question this step must answer → which paths were considered and why this one was chosen → walking through the key code together → how to verify it yourself.
 
-代码片段全部摘自对应 tag 的真实快照，一行未改；读的时候可以随时 `git checkout` 对照全貌。
+Every code snippet is quoted unchanged from the real snapshot at the corresponding tag; you can `git checkout` at any time to compare against the full picture.
 
-六篇是接续的：每篇开头接住上一篇结尾留下的问题，结尾又把新的问题交给下一篇。按顺序读最顺；只想看某一阶段的机制，单独读一篇也能成立。
+The six articles are connected: each opens by picking up the question its predecessor ended with, and ends by handing a new question to the next. Reading in order is smoothest; reading a single stage on its own also works if you only care about one mechanism.
 
-## 如何跟着做
+## How to follow along
 
 ```bash
-git checkout stage-1        # 检出某个阶段的完整代码
-python -m unittest discover -s tests   # 运行该阶段的测试套件
+git checkout stage-1        # check out the complete code of a stage
+python -m unittest discover -s tests   # run that stage's test suite
 ```
 
-每个 tag 上的代码都是当时完整可运行的状态，测试套件在当时全部通过。想对比两个阶段的变化，用 `git diff stage-1 stage-2`。
+The code at every tag was fully runnable at the time, with its test suite passing. To compare two stages, use `git diff stage-1 stage-2`.
 
-注意：`stage-1` 到 `stage-6` 的快照保持当时的扁平布局（`mica/` 在仓库根目录）；0.1.0 的发布打磨提交将代码迁移到了 `src/mica/`，0.2.0 更名后为 `src/sericite/`。文章中的文件路径（如 `mica/engine.py`）对应各 stage 的快照，在 `main` 上请对应到 `src/sericite/engine.py`。
+Note: the `stage-1` through `stage-6` snapshots keep the flat layout of their time (`mica/` at the repository root); the 0.1.0 release-polish commits moved the code to `src/mica/`, and the 0.2.0 rename made it `src/sericite/`. File paths in the articles (e.g. `mica/engine.py`) correspond to the stage snapshots; on `main`, map them to `src/sericite/engine.py`.
 
-## 写给想动手复刻的人
+## For those who want to replicate
 
-如果想在自己的项目里复刻这套思路，读的时候请特别留意每篇里"岔路与取舍"的部分——那里记录了被否掉的方案和否掉的理由。代码会过时，取舍不会。
+If you want to replicate this approach in your own project, pay special attention to the "forks and trade-offs" part of each article — that is where rejected options and the reasons for rejecting them are recorded. Code goes stale; trade-offs don't.
 
-同样值得细读的是每篇结尾的"留下了什么坑"：这个项目从不遮掩自己的半成品状态，那些如实记录的偏差和债，比顺利的部分更能教人东西。
+Equally worth a close read is the "what pits remain" section at the end of each article: this project never hides its half-finished state, and those honestly recorded deviations and debts teach more than the smooth parts.

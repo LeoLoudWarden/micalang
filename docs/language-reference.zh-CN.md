@@ -1,6 +1,6 @@
 # Sericite 语言参考
 
-Sericite 是一门脚本语言，语法是 Python 的子集——写起来就是 Python，但**不是所有 Python 写法都合法**，而且部分语义有自己的规矩。本文自完备：读完即可开写。本文描述 Sericite 0.1.0 的语言行为。
+Sericite 是一门脚本语言，语法是 Python 的子集——写起来就是 Python，但**不是所有 Python 写法都合法**，而且部分语义有自己的规矩。本文自完备：读完即可开写。本文描述 Sericite 0.2.0 的语言行为。
 
 ## 1. 基本样子
 
@@ -108,7 +108,7 @@ raise                        # 在 except 块内裸 raise：重新抛出当前�
 - `len(x)`（str/list/dict）、`int(x)`、`float(x)`、`str(x)`、`range(...)`（返回 list）、`keys(d)`（返回 dict 键的 list）。
 - 文件（纯文本）：`read_file(path)`、`write_file(path, text)`、`list_dir(path)`、`path_exists(path)`。路径形如 `/notes/a.txt`，目录靠路径前缀隐含。
 
-**没有的方法**：list/dict/str 一律没有方法——`append`、`get`、`join`、`split`、`strip` 全都不存在。追加元素用 `lst = lst + [x]`，取字典键用 `d[k] if k in d else 默认`。
+**没有方法**：list/dict/str 一律没有方法——`append`、`get`、`join`、`split`、`strip` 全都不存在。追加元素用 `lst = lst + [x]`，取字典键用 `d[k] if k in d else 默认`。
 
 ## 7. 创建虚拟机（VM）
 

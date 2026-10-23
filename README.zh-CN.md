@@ -9,6 +9,8 @@
 
 语法借用 Python 的一个子集，但 Sericite 源码会被编译为 Sericite 自己的指令流，由 Sericite 引擎逐条执行——不经过 `exec`/`eval`。每台 VM 初始能力为零：独立的虚拟 IO、独立的内存文件系统、创建子 VM。其余一切能力（网络、宿主数据、任何你选择授予的东西）都通过 FFI 逐层显式授予。
 
+[English documentation](https://github.com/LeoLoudWarden/sericite/blob/main/README.md)
+
 ## 状态
 
 0.2.0 原型。引擎是 Python 参考实现（代号 **Sericite-PY**）：零运行时依赖，Python ≥ 3.12，198 个回归测试用例。1.0 之前 API 与语义可能变化。
@@ -65,6 +67,8 @@ print(vm.run(), end="")    # 42
 - 父级可以预置文件、喂输入、逐语句或逐指令单步、查看快照、随时终止；
 - 它可以创建自己的子 VM——隔离是递归的，因为不可信的代码是递归的。
 
+廉价是实测过的：当前 Python 原型中，脚本内创建一台子 VM 约 0.05 ms，与创建一个线程同数量级，比进程便宜一到两个数量级。代表性循环连续执行平均约 0.65 µs/指令，逐指令调试约 1.86 µs/指令（实测环境与复现脚本见 [benchmarks/](https://github.com/LeoLoudWarden/sericite/tree/main/benchmarks)）。
+
 ## 文档
 
 | 文档 | 内容 |
@@ -72,10 +76,12 @@ print(vm.run(), end="")    # 42
 | [设计说明](https://github.com/LeoLoudWarden/sericite/blob/main/docs/design.zh-CN.md) | Sericite 是什么、为什么存在、边界划在哪里（[English](https://github.com/LeoLoudWarden/sericite/blob/main/docs/design.md)） |
 | [先例与相关工作](https://github.com/LeoLoudWarden/sericite/blob/main/docs/prior-art.zh-CN.md) | Safe-Tcl 证明了什么、停在哪里，Sericite 补什么（[English](https://github.com/LeoLoudWarden/sericite/blob/main/docs/prior-art.md)） |
 | [语言参考](https://github.com/LeoLoudWarden/sericite/blob/main/docs/language-reference.zh-CN.md) | 自完备的语言子集与语义（[English](https://github.com/LeoLoudWarden/sericite/blob/main/docs/language-reference.md)） |
-| [架构说明](https://github.com/LeoLoudWarden/sericite/blob/main/docs/architecture.zh-CN.md) | 引擎结构、设计不变量、资源配额 |
+| [架构说明](https://github.com/LeoLoudWarden/sericite/blob/main/docs/architecture.zh-CN.md) | 引擎结构、设计不变量、资源配额（[English](https://github.com/LeoLoudWarden/sericite/blob/main/docs/architecture.md)） |
 | [安全模型](https://github.com/LeoLoudWarden/sericite/blob/main/docs/security.zh-CN.md) | 威胁模型；引擎保证什么、不保证什么（[English](https://github.com/LeoLoudWarden/sericite/blob/main/docs/security.md)） |
-| [构建手记](https://github.com/LeoLoudWarden/sericite/blob/main/docs/stages/README.md) | Sericite 0.1.0 逐阶段构建过程，含可运行检查点（`git checkout stage-1` … `stage-6`） |
-| [幕后](https://github.com/LeoLoudWarden/sericite/blob/main/docs/behind-the-scenes/README.md) | 项目由来与 AI 辅助开发过程 |
+| [构建手记](https://github.com/LeoLoudWarden/sericite/blob/main/docs/stages/README.zh-CN.md) | Sericite 0.1.0 逐阶段构建过程，含可运行检查点（`git checkout stage-1` … `stage-6`） |
+| [幕后](https://github.com/LeoLoudWarden/sericite/blob/main/docs/behind-the-scenes/README.zh-CN.md) | 项目由来与 AI 辅助开发过程 |
+
+构建手记与幕后的正文文章仅中文（其索引页有英文版）；不计划全文翻译——它们是冻结的历史。
 
 ## 这个项目是怎么写出来的
 
@@ -84,7 +90,7 @@ Sericite 全程使用 AI 辅助开发——设计讨论、实现、测试、对�
 ## 路线图
 
 - 列表/字典/字符串方法与更多易用性语法
-- 性能基准（子 VM 创建成本、每指令开销）
+- 性能基准：VM 创建、每指令执行与调试成本已实测（见 [benchmarks/](https://github.com/LeoLoudWarden/sericite/tree/main/benchmarks)）；更多工作负载的覆盖待补
 - 规范化的语言规范与一致性测试套件，供未来非 Python 引擎对照验证
 - 原生引擎评估（包名刻意取语言级：`sericite` 在引擎重写后依然成立）
 

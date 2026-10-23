@@ -26,7 +26,7 @@
 
 修改引擎时必须保持以下不变量（编号仅为引用方便）：
 
-1. 所有 VM 必须由同一个 `SericiteEngine` 直接执行，不能为每个层级再套一层解释器。嵌套 VM 只是同一引擎里的另一个执行上下文，这是"创建子 VM 便宜"的结构基础。
+1. 所有 VM 必须由同一个 `SericiteEngine` 直接执行，不能为每个层级再套一层解释器。嵌套 VM 只是同一引擎里的另一个执行上下文，这是"创建子 VM 便宜"的结构基础（实测见 [benchmarks/vm_creation.py](https://github.com/LeoLoudWarden/sericite/blob/main/benchmarks/vm_creation.py)）。
 2. 子 VM 不得隐式读取父级或宿主 stdin，也不得直接向宿主 stdout 写入；子 VM 的文件系统默认全新空白，不共享父级任何文件。
 3. 子 VM 默认不能取得父级局部变量、父级句柄、宿主对象或 Python 反射入口。
 4. 脚本能力通过受控原生函数和 VM 句柄方法提供，不能暴露任意 Python 属性。
@@ -70,7 +70,21 @@ VM 状态：`ready`、`waiting_input`、`done`、`error`、`resource_exhausted`�
 - 除指令条数外，大体量操作（容器比较/成员判断、拼接、序列化、编译子 VM 源码、VM 方法返回值）按规模折价计入 `instruction_count`。
 - 子 VM 的指令与内存分配计入所有祖先，祖先链上任一环超限即失败。
 
-## 6. 当前原型能力概览
+## 6. 实测性能
+
+以下最近一次实测均使用 Intel i3-9100、Linux x86_64。指令与调试数据来自 2026-10-23 的 CPython 3.13.13；VM 创建数据沿用复现脚本中记录的 CPython 3.13/3.14 结果。所有数值均为多轮测试的中位数。
+
+| 操作 | 实测成本 | 复现脚本 |
+|---|---:|---|
+| 脚本内创建子 VM | ~50 µs/VM | [vm_creation.py](../benchmarks/vm_creation.py) |
+| 宿主侧创建并运行 root VM | ~42 µs/VM | [vm_creation.py](../benchmarks/vm_creation.py) |
+| 用 `run()` 执行代表性计数循环 | ~0.65 µs/指令 | [instruction.py](../benchmarks/instruction.py) |
+| 用 `step_instruction()` 执行同一循环 | ~1.86 µs/指令（`run()` 的 2.92 倍） | [debugging.py](../benchmarks/debugging.py) |
+| 用 `step()` 执行同一循环 | ~4.91 µs/次调用（约 1.09 µs/指令） | [debugging.py](../benchmarks/debugging.py) |
+
+指令成本是该工作负载的加权平均值，不代表每种 opcode 都有相同成本，且不含 VM 创建与编译。单步数据包含逐步控制以及每步生成安全快照的成本，测试工作负载只有一个简单局部变量。这些数字是 Python 原型的实测结果，不是性能承诺；引擎变更后需要重新测量。
+
+## 7. 当前原型能力概览
 
 - 内建类型：int、float、str、bool、None、list、dict；运算符、比较、成员判断、短路逻辑。
 - 控制流：`if/elif/else`、`while`、`for`、`break/continue`、`try/except/else/finally`、`raise`、三元表达式。
@@ -82,7 +96,7 @@ VM 状态：`ready`、`waiting_input`、`done`、`error`、`resource_exhausted`�
 
 明确的取舍：列表与字典方法、闭包、可变参数、链式比较、`import`/`class` 等暂不支持——它们属于易用性或表达力问题，按需逐步加入，不影响设计主线。
 
-## 7. 已知边界与语义偏差
+## 8. 已知边界与语义偏差
 
 - 宿主函数的执行耗时与内存由宿主自律，不按指令计费（每次 FFI 调用计 1 条指令）；宿主返回结构受节点预算与深度限制。
 - 内存总账是近似值（字符串按字符数 ×4、list 槽 ×8、dict 项 ×16），只增不减（高水位），不模拟实际释放——保守但安全。
@@ -91,6 +105,6 @@ VM 状态：`ready`、`waiting_input`、`done`、`error`、`resource_exhausted`�
 - for 遍历 list 为活视图、遍历 dict 为键快照。
 - VM 终态后其执行上下文仍保留在引擎上（供调试快照查看）；引擎级 `max_total_vms` 已封住数量增长，终态释放留待后续版本。
 
-## 8. 明确暂不支持
+## 9. 明确暂不支持
 
 列表/字典/字符串方法、闭包、可变参数/仅关键字参数、`**` 展开、链式比较、切片、元组、f-string、`import`、`del`、`class`。

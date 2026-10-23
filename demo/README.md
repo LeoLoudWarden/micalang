@@ -1,32 +1,34 @@
-# demo：HTTP 能力授予 + 多层虚拟化的 LLM code exec
+# Demo: HTTP capability granting + multi-layer virtualized LLM code exec
 
-展示 sericite 的完整闭环：宿主把 `llm_chat` / `http_get` 作为 FFI 能力授予 VM；外层 LLM 通过 `sericite_exec` 在 VM 里写代码，其中包括**自己再开一个 LLM 会话**（用授予的 `llm_chat`），内层 LLM 的 `sericite_exec` 则落在更深一层 VM 里。内层不再授予网络能力，递归链条终止。
+[中文说明](README.zh-CN.md)
 
-外层 VM 内的模型如果不确定 OpenAI 兼容 API 的 tools schema 写法，可以用授予的 `http_get` 抓取协议说明（默认指向 Kimi 开放平台的 tool_calls 指南，Markdown 纯文本，见 `main.py` 的 `API_HELP_URL`）——顺带展示了 VM 内获取外部资源的能力。
+Shows Sericite's full closed loop: the host grants `llm_chat` / `http_get` to a VM as FFI capabilities; the outer LLM writes code in that VM via `sericite_exec`, including **starting another LLM session of its own** (using the granted `llm_chat`), whose `sericite_exec` lands in a yet deeper VM. The inner layer is granted no network capability, so the recursion terminates.
 
-## 运行
+If the model in the outer VM is unsure about the tools schema of the OpenAI-compatible API, it can use the granted `http_get` to fetch the protocol documentation (by default the tool_calls guide on the Kimi open platform, plain Markdown text — see `API_HELP_URL` in `main.py`) — incidentally demonstrating a VM fetching external resources.
+
+## Run
 
 ```bash
 uv sync --extra demo
-# 配置 .env：API_URL / API_KEY / API_MODEL（OpenAI 兼容端点）
+# configure .env: API_URL / API_KEY / API_MODEL (OpenAI-compatible endpoint)
 uv run --extra demo demo/main.py
 ```
 
-没有真实 API 时，用本地桩服务器验证全链路（桩按固定脚本扮演 AI，中间层会话循环的 sericite 代码由桩给出）：
+Without a real API, verify the whole chain against the local stub server (the stub plays the AI with a fixed script and supplies the sericite code for the intermediate session loop):
 
 ```bash
-uv run --extra demo demo/mock_server.py &          # 监听 127.0.0.1:8399
+uv run --extra demo demo/mock_server.py &          # listens on 127.0.0.1:8399
 API_URL=http://127.0.0.1:8399/v1/chat/completions API_KEY=mock API_MODEL=mock \
   uv run --extra demo demo/main.py
 ```
 
-## 依赖说明
+## Dependencies
 
-`requests` 与 `python-dotenv` 是 **demo 的依赖，不是 sericite 引擎的依赖**——引擎本体零依赖。它们声明在 `pyproject.toml` 的 `[project.optional-dependencies] demo` 中，只有显式 `--extra demo` 才会安装。
+`requests` and `python-dotenv` are **dependencies of the demo, not of the Sericite engine** — the engine itself has zero dependencies. They are declared in the `demo` extra of `pyproject.toml` and installed only with an explicit `--extra demo`.
 
-## 文件
+## Files
 
-- `main.py`：宿主程序（会话循环、工具分发、VM 创建与文件收种、`llm_chat` / `http_get` FFI 的定义与双向规整）。
-- `mock_server.py`：本地桩，用于无真实 API 时验证。
+- `main.py`: the host program (session loop, tool dispatch, VM creation and file harvesting, `llm_chat` / `http_get` FFI definitions with bidirectional normalization).
+- `mock_server.py`: local stub for verification without a real API.
 
-提示词（外层 PROMPT1 / 内层 PROMPT_INNER）在 `main.py` 中。关键区分：外层提示词教模型用 `llm_chat` 实现递归会话；内层提示词不提递归能力，链条因此停下。
+The prompts (outer `PROMPT1` / inner `PROMPT_INNER`) live in `main.py`. The key distinction: the outer prompt teaches the model to use `llm_chat` for a recursive session; the inner prompt never mentions that capability, so the chain stops.

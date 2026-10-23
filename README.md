@@ -67,6 +67,8 @@ A VM is a cheap, self-contained workspace:
 - its parent can preset files, feed input, single-step it statement by statement or instruction by instruction, snapshot its state, or terminate it;
 - it can create its own child VMs — isolation is recursive, because untrusted code is.
 
+Cheap is measured, not just claimed: in the current Python prototype, creating a child VM from inside a script costs ~0.05 ms — the same order as spawning a thread, one to two orders of magnitude below a process. A representative loop averages ~0.65 µs per instruction, or ~1.86 µs per instruction with instruction-level stepping (environment and reproduction scripts: [benchmarks/](https://github.com/LeoLoudWarden/sericite/tree/main/benchmarks)).
+
 ## Documentation
 
 | Document | Language | Contents |
@@ -74,12 +76,12 @@ A VM is a cheap, self-contained workspace:
 | [Design notes](https://github.com/LeoLoudWarden/sericite/blob/main/docs/design.md) | EN | What Sericite is, why it exists, where the boundaries are ([中文](https://github.com/LeoLoudWarden/sericite/blob/main/docs/design.zh-CN.md)) |
 | [Prior art](https://github.com/LeoLoudWarden/sericite/blob/main/docs/prior-art.md) | EN | Safe-Tcl and related work: what Sericite inherits, what it adds ([中文](https://github.com/LeoLoudWarden/sericite/blob/main/docs/prior-art.zh-CN.md)) |
 | [Language reference](https://github.com/LeoLoudWarden/sericite/blob/main/docs/language-reference.md) | EN | The language subset and semantics, self-contained ([中文](https://github.com/LeoLoudWarden/sericite/blob/main/docs/language-reference.zh-CN.md)) |
-| [Architecture](https://github.com/LeoLoudWarden/sericite/blob/main/docs/architecture.zh-CN.md) | 中文 | Engine structure, invariants, resource quotas |
+| [Architecture](https://github.com/LeoLoudWarden/sericite/blob/main/docs/architecture.md) | EN | Engine structure, invariants, resource quotas ([中文](https://github.com/LeoLoudWarden/sericite/blob/main/docs/architecture.zh-CN.md)) |
 | [Security model](https://github.com/LeoLoudWarden/sericite/blob/main/docs/security.md) | EN | Threat model; what the engine does and does not guarantee ([中文](https://github.com/LeoLoudWarden/sericite/blob/main/docs/security.zh-CN.md)) |
-| [Build journal](https://github.com/LeoLoudWarden/sericite/blob/main/docs/stages/README.md) | 中文 | How Sericite 0.1.0 was built, stage by stage, with runnable checkpoints (`git checkout stage-1` … `stage-6`) |
-| [Behind the scenes](https://github.com/LeoLoudWarden/sericite/blob/main/docs/behind-the-scenes/README.md) | 中文 | Origin story and how AI-assisted development was used |
+| [Build journal](https://github.com/LeoLoudWarden/sericite/blob/main/docs/stages/README.md) | EN index | How Sericite 0.1.0 was built, stage by stage, with runnable checkpoints (`git checkout stage-1` … `stage-6`); articles in [中文](https://github.com/LeoLoudWarden/sericite/blob/main/docs/stages/README.zh-CN.md) |
+| [Behind the scenes](https://github.com/LeoLoudWarden/sericite/blob/main/docs/behind-the-scenes/README.md) | EN index | Origin story and how AI-assisted development was used; articles in [中文](https://github.com/LeoLoudWarden/sericite/blob/main/docs/behind-the-scenes/README.zh-CN.md) |
 
-Architecture notes, build journal, and behind-the-scenes are currently 中文-only; English versions are planned.
+The build-journal and behind-the-scenes articles are Chinese-only (their index pages have English versions); full translations are not planned — they are frozen history.
 
 ## How this project was built
 
@@ -88,7 +90,7 @@ Sericite was developed with AI assistance throughout — design discussion, impl
 ## Roadmap
 
 - List/dict/string methods and more ergonomic syntax
-- Performance benchmarks (child-VM creation cost, per-instruction overhead)
+- Performance benchmarks: VM creation, per-instruction execution, and debugging costs measured (see [benchmarks/](https://github.com/LeoLoudWarden/sericite/tree/main/benchmarks)); broader workload coverage still pending
 - A normative language spec and a conformance test suite, so a future non-Python engine can be validated against them
 - Evaluation of a native engine (the package name is language-level on purpose: `sericite` survives an engine rewrite)
 
