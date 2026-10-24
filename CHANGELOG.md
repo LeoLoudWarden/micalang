@@ -90,7 +90,7 @@
 - 项目更名：Mica/MicaLang → Sericite。发行包名 `micalang` → `sericite`，import 包名 `mica` → `sericite`，CLI 命令 `micalang` → `sericite`，源码扩展名 `.mica` → `.sericite`，Python API 类名 MicaEngine/MicaError/MicaLimits → SericiteEngine/SericiteError/SericiteLimits。更名缘由见 README "The name"。
 - design 文档修正先例论述：补充 Safe-Tcl 作为直接祖先的考据，新增 docs/prior-art.md《先例与相关工作》（中英双语）。
 
-## [0.1.0] - 未发布
+## [0.1.0] - 2026-10-22
 
 首次公开发布。构建过程见构建手记 `docs/stages/`（tag `stage-0`…`stage-6`）。
 
