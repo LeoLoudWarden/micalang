@@ -43,6 +43,6 @@ body:
     attributes:
       label: 版本 / Version
       description: sericite 版本（`sericite --version`）与 Python 版本。
-      placeholder: "sericite 0.2.0, Python 3.12"
+      placeholder: "sericite X.Y.Z, Python 3.12"
     validations:
       required: true

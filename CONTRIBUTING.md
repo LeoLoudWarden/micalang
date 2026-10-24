@@ -18,6 +18,16 @@ uv run python -m unittest discover -s tests
 
 仓库采用 `src/` 布局，直接运行 `python -m unittest` 前需要先安装本项目（`uv sync` 会自动处理）。
 
+## 发版
+
+1. 更新 `src/sericite/__init__.py` 的 `__version__`。
+2. 更新 `docs/language-reference.md` 与 `docs/language-reference.zh-CN.md` 开头声明的版本。
+3. 在 `CHANGELOG.md` 的 `[Unreleased]` 下新增 `## [X.Y.Z] - YYYY-MM-DD` 节。
+4. 新 minor 版本在 `SECURITY.md` 的支持版本表加一行（patch 版本不动）。
+5. 打 tag 并推送：`git tag vX.Y.Z && git push origin vX.Y.Z`。
+
+`release.yml` 会先校验 tag 与 `__version__`、CHANGELOG 节、语言参考声明的版本、`SECURITY.md` 的 minor 行是否一致；任一项不符则构建失败，不会发布。
+
 ## 设计纪律
 
 - 理念问题以 [`docs/design.zh-CN.md`](docs/design.zh-CN.md) 为准。改理念先改它，不要在别处另造表述。
