@@ -221,7 +221,7 @@ sub.run()                        # 输出 42
 
 ## 9. 明确不能写（编译期直接拒绝）
 
-`import`、`del`、列表/字典/字符串方法、`*args/**kwargs`、链式比较、切片、元组、f-string、双下划线名称、class 字段默认值/方法/继承、裸注解声明（`x: T` 不赋值）。内建名（`print`/`len`/`wrap` 等）与契约名（`any/bool/list/dict`）不可重新绑定，契约名只能出现在注解位。
+`import`、`del`、列表/字典/字符串方法、`*args/**kwargs`、链式比较、切片、元组、f-string、双下划线名称、class 字段默认值/方法/继承、语句级裸注解赋值（`x: T` 不赋值；class 体字段声明 `y: int` 是唯一例外）。内建名（`print`/`len`/`wrap` 等）与契约名（`any/bool/list/dict`）不可重新绑定，契约名只能出现在注解位。
 
 ## 10. 一个完整例子
 

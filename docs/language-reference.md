@@ -221,7 +221,7 @@ A granted sericite function retains its definition-side module variables, closur
 
 ## 9. Explicitly not writable (rejected at compile time)
 
-`import`, `del`, list/dict/string methods, `*args/**kwargs`, chained comparisons, slicing, tuples, f-strings, dunder names, class field defaults/methods/inheritance, bare annotated declarations (`x: T` without a value). Builtin names (`print`/`len`/`wrap` etc.) and contract names (`any/bool/list/dict`) cannot be rebound; contract names may only appear in annotation positions.
+`import`, `del`, list/dict/string methods, `*args/**kwargs`, chained comparisons, slicing, tuples, f-strings, dunder names, class field defaults/methods/inheritance, annotated assignments without a value at statement level (`x: T` — class-body field declarations like `y: int` are the exception). Builtin names (`print`/`len`/`wrap` etc.) and contract names (`any/bool/list/dict`) cannot be rebound; contract names may only appear in annotation positions.
 
 ## 10. A complete example
 

@@ -9,7 +9,7 @@ Three articles about the project beyond its code: where it came from, and how it
 | Article | Content |
 |---|---|
 | [origin.zh-CN.md](origin.zh-CN.md) | *The Motivation: Before Mica.* The exploration before the project started: why it was needed, why existing solutions were not enough |
-| [ai-assisted-development.zh-CN.md](ai-assisted-development.zh-CN.md) | *AI-Assisted Development.* How this project used AI: what was used, how work was divided, how outputs were verified |
+| [ai-assisted-development.zh-CN.md](ai-assisted-development.zh-CN.md) ([English summary](ai-assisted-development.md)) | *AI-Assisted Development.* How this project used AI: what was used, how work was divided, how outputs were verified |
 | [conversation.zh-CN.md](conversation.zh-CN.md) | *Selected Development Conversations.* Excerpts from the main thread of conversations with AI during development |
 
 ## Editorial principles
