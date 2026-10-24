@@ -49,7 +49,7 @@ from collections.abc import Callable
 
 from sericite import SericiteEngine, SericiteLimits
 
-N_HOST = 2000    # VMs per host-side sample
+N_HOST = 2000  # VMs per host-side sample
 N_SCRIPT = 1000  # child VMs per script-side sample
 SOURCE = "x = 1"  # minimal non-empty program
 

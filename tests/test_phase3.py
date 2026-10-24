@@ -33,12 +33,7 @@ class TryExceptTests(unittest.TestCase):
         self.assertEqual(run(source), "right\n")
 
     def test_bare_except_catches_all(self):
-        source = (
-            "try:\n"
-            '    x = int("abc")\n'
-            "except:\n"
-            '    print("caught")\n'
-        )
+        source = 'try:\n    x = int("abc")\nexcept:\n    print("caught")\n'
         self.assertEqual(run(source), "caught\n")
 
     def test_non_matching_kind_propagates(self):
@@ -153,8 +148,7 @@ class KeywordCallTests(unittest.TestCase):
 class NestedVMTests(unittest.TestCase):
     def test_vm_config_limits_child(self):
         source = (
-            'sub = VM("while True:\\n    x = 1", max_instructions=100)\n'
-            "sub.run()\n"
+            'sub = VM("while True:\\n    x = 1", max_instructions=100)\nsub.run()\n'
         )
         engine = SericiteEngine()
         vm = engine.create_root(source)
@@ -165,8 +159,7 @@ class NestedVMTests(unittest.TestCase):
     def test_vm_config_clamped_to_parent(self):
         limits = SericiteLimits(max_instructions=300)
         source = (
-            'sub = VM("while True:\\n    x = 1", max_instructions=999999)\n'
-            "sub.run()\n"
+            'sub = VM("while True:\\n    x = 1", max_instructions=999999)\nsub.run()\n'
         )
         engine = SericiteEngine(limits=limits)
         vm = engine.create_root(source)
@@ -204,7 +197,8 @@ class NestedVMTests(unittest.TestCase):
         child = next(c for c in engine._contexts.values() if c.parent_id == 0)
         root_count = vm.snapshot()["instruction_count"]
         self.assertGreaterEqual(
-            root_count, child.instruction_count,
+            root_count,
+            child.instruction_count,
             "root instruction count should include the child's consumption",
         )
 
@@ -222,7 +216,7 @@ class VFSTests(unittest.TestCase):
             'write_file("/b.txt", "b")\n'
             'write_file("/a/x.txt", "x")\n'
             'write_file("/a/y.txt", "y")\n'
-            "print(list_dir(\"/\"))\n"
+            'print(list_dir("/"))\n'
             'print(list_dir("/a"))\n'
         )
         self.assertEqual(run(source), "['a', 'b.txt']\n['x.txt', 'y.txt']\n")
@@ -273,11 +267,7 @@ class VFSTests(unittest.TestCase):
 
     def test_file_count_limit(self):
         limits = SericiteLimits(max_fs_files=2)
-        source = (
-            'write_file("/a", "1")\n'
-            'write_file("/b", "2")\n'
-            'write_file("/c", "3")\n'
-        )
+        source = 'write_file("/a", "1")\nwrite_file("/b", "2")\nwrite_file("/c", "3")\n'
         engine = SericiteEngine(limits=limits)
         vm = engine.create_root(source)
         with self.assertRaises(SericiteError) as ctx:
@@ -323,8 +313,8 @@ class VFSTests(unittest.TestCase):
     def test_host_presets_and_inspects(self):
         engine = SericiteEngine()
         vm = engine.create_root(
-            "content = read_file(\"/input.txt\")\n"
-            "write_file(\"/output.txt\", content + \"!\")\n"
+            'content = read_file("/input.txt")\n'
+            'write_file("/output.txt", content + "!")\n'
         )
         vm.write_file("/input.txt", "hello")
         vm.run()

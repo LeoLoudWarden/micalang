@@ -267,9 +267,7 @@ class DecoratorTests(unittest.TestCase):
             "    return 42\n"
             "print(value())\n"
         )
-        self.assertEqual(
-            run(source), "eval one\neval two\napply two\napply one\n42\n"
-        )
+        self.assertEqual(run(source), "eval one\neval two\napply two\napply one\n42\n")
 
     def test_decorator_expression_reads_closure_cell(self):
         source = (
@@ -346,20 +344,14 @@ class ClosureRuntimeTests(unittest.TestCase):
         )
         module = compile_source(source, "<test>")
         outer = next(
-            instr.arg[0]
-            for instr in module.instrs
-            if instr.op == isa.MAKE_FUNCTION
+            instr.arg[0] for instr in module.instrs if instr.op == isa.MAKE_FUNCTION
         )
         read_units = [
-            instr.arg[0]
-            for instr in outer.instrs
-            if instr.op == isa.MAKE_FUNCTION
+            instr.arg[0] for instr in outer.instrs if instr.op == isa.MAKE_FUNCTION
         ]
         self.assertTrue(read_units)
         for code in read_units:
-            self.assertEqual(
-                sum(instr.op == isa.RETURN for instr in code.instrs), 2
-            )
+            self.assertEqual(sum(instr.op == isa.RETURN for instr in code.instrs), 2)
         self.assertEqual(run(source + "print(outer()())\n"), "1\n")
 
     def test_cells_and_closure_environment_consume_memory_quota(self):

@@ -27,9 +27,11 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from sericite import SericiteEngine, SericiteError, SericiteLimits  # noqa: E402
+from sericite import SericiteEngine, SericiteError
 
-DOC_PATH = Path(__file__).resolve().parent.parent / "docs" / "language-reference.zh-CN.md"
+DOC_PATH = (
+    Path(__file__).resolve().parent.parent / "docs" / "language-reference.zh-CN.md"
+)
 DOC_VFS_PATH = "/sericite语言特性速览.md"
 INNER_PROMPT_VFS_PATH = "/prompt_inner.txt"
 MAX_RESULT_CHARS = 4000
@@ -91,7 +93,9 @@ TOOLS = [
     },
 ]
 
-API_HELP_URL = "https://platform.kimi.com/docs/guide/use-kimi-api-to-complete-tool-calls.md"
+API_HELP_URL = (
+    "https://platform.kimi.com/docs/guide/use-kimi-api-to-complete-tool-calls.md"
+)
 MAX_FETCH_CHARS = 200_000
 
 PROMPT_INNER = """你是一个有代码执行能力的助手。
@@ -102,7 +106,8 @@ PROMPT_INNER = """你是一个有代码执行能力的助手。
 
 任务：随便做点简单的事情作为练习，比如用 sericite_exec 算几个斐波那契数、写个文件再读出来验证。做完后给出简短的总结。"""
 
-PROMPT1 = """你是一个有代码执行能力的助手。
+PROMPT1 = (
+    """你是一个有代码执行能力的助手。
 
 你可以使用 sericite_exec 工具执行代码（sericite 语言），以及 file_read / file_write / file_list 工具读写当前工作目录的文件。
 
@@ -122,7 +127,9 @@ PROMPT1 = """你是一个有代码执行能力的助手。
    - 会话的系统提示词用 file 里的 /prompt_inner.txt（read_file 读取）。
    - tools 用和你自己一样的四个工具（sericite_exec / file_read / file_write / file_list）。
      如果你不确定 tools 的 schema 写法，不要凭记忆手写——先用 http_get 从
-     """ + API_HELP_URL + """
+     """
+    + API_HELP_URL
+    + """
      获取帮助文本（OpenAI 兼容 API 的 tool_calls 协议说明，Markdown 纯文本），照着它写。
    - 对方调用 sericite_exec 时：创建一个新 VM 执行（VM(code)），并先 write_file 把 `sericite语言特性速览.md` 放进它的工作目录。不要给这些 VM 授予任何 functions。
    - 对方调用 file_read / file_write / file_list 时：直接用你环境里的 read_file / write_file / list_dir 处理（共享当前工作目录）。
@@ -130,6 +137,7 @@ PROMPT1 = """你是一个有代码执行能力的助手。
    - 所有文件内容都用 read_file 读出来后嵌入，不要凭记忆复述。
 
 把这个会话循环写进一次 sericite_exec 里执行。注意 sericite 没有 try 之外的容错，代码尽量朴素。"""
+)
 
 
 def _normalize_api_url(url: str) -> str:
@@ -157,9 +165,7 @@ def make_llm_chat(api_url: str, api_key: str, model: str):
                         "type": "function",
                         "function": {
                             "name": call["name"],
-                            "arguments": json.dumps(
-                                call["args"], ensure_ascii=False
-                            ),
+                            "arguments": json.dumps(call["args"], ensure_ascii=False),
                         },
                     }
                     for call in calls
@@ -178,7 +184,10 @@ def make_llm_chat(api_url: str, api_key: str, model: str):
                     timeout=600,
                 )
                 break
-            except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectionError):
+            except (
+                requests.exceptions.ReadTimeout,
+                requests.exceptions.ConnectionError,
+            ):
                 if attempt == 2:
                     raise
         try:
@@ -200,7 +209,10 @@ def make_llm_chat(api_url: str, api_key: str, model: str):
             except ValueError:
                 args = {}
             calls.append({"id": raw_call["id"], "name": fn["name"], "args": args})
-        assistant_message = {"role": "assistant", "content": raw_message.get("content") or ""}
+        assistant_message = {
+            "role": "assistant",
+            "content": raw_message.get("content") or "",
+        }
         if calls:
             assistant_message["tool_calls"] = calls
         return {
@@ -284,7 +296,7 @@ def make_host_handler(llm_chat, http_get, seed_files: dict[str, str]):
         if name == "file_list":
             prefix = _norm_path(args.get("path", "/")).rstrip("/") + "/"
             names = {
-                path[len(prefix):].split("/", 1)[0]
+                path[len(prefix) :].split("/", 1)[0]
                 for path in [*workspace, *seed_files]
                 if path.startswith(prefix)
             }
@@ -294,7 +306,9 @@ def make_host_handler(llm_chat, http_get, seed_files: dict[str, str]):
     return handler
 
 
-def run_session(llm_chat, system_prompt: str, user_prompt: str, handler, label: str) -> str:
+def run_session(
+    llm_chat, system_prompt: str, user_prompt: str, handler, label: str
+) -> str:
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
@@ -307,7 +321,9 @@ def run_session(llm_chat, system_prompt: str, user_prompt: str, handler, label: 
         if not resp["tool_calls"]:
             return resp["content"]
         for call in resp["tool_calls"]:
-            print(f"[{label} 工具调用] {call['name']}({json.dumps(call['args'], ensure_ascii=False)[:120]})")
+            print(
+                f"[{label} 工具调用] {call['name']}({json.dumps(call['args'], ensure_ascii=False)[:120]})"
+            )
             result = handler(call["name"], call["args"])
             # print(f"[{label} 工具结果] {result[:300]}")
             print(f"[{label} 工具结果] {result}")
@@ -325,8 +341,12 @@ def main() -> None:
     api_key = os.environ.get("API_KEY")
     model = os.environ.get("API_MODEL")
     if not (api_url and api_key and model):
-        print("缺少配置：需要 API_URL / API_KEY / API_MODEL（写入 .env 或设置环境变量）")
-        print("没有真实 API 时，可先运行 demo/mock_server.py，再用 DEMO_ENV=demo/.env.mock 启动")
+        print(
+            "缺少配置：需要 API_URL / API_KEY / API_MODEL（写入 .env 或设置环境变量）"
+        )
+        print(
+            "没有真实 API 时，可先运行 demo/mock_server.py，再用 DEMO_ENV=demo/.env.mock 启动"
+        )
         sys.exit(1)
 
     llm_chat = make_llm_chat(_normalize_api_url(api_url), api_key, model)

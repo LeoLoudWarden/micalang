@@ -17,13 +17,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         prog="sericite",
         description="Sericite language runtime (Sericite-PY reference implementation)",
     )
-    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    parser.add_argument(
+        "--version", action="version", version=f"%(prog)s {__version__}"
+    )
     parser.add_argument("source", help="Sericite source file")
     args = parser.parse_args(argv)
     try:
         source = Path(args.source).read_text(encoding="utf-8")
     except OSError as exc:
-        print(f"sericite: unable to read source: {exc.strerror or 'I/O error'}", file=sys.stderr)
+        print(
+            f"sericite: unable to read source: {exc.strerror or 'I/O error'}",
+            file=sys.stderr,
+        )
         return 1
 
     engine = SericiteEngine()

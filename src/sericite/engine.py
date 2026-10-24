@@ -113,19 +113,23 @@ class _TagContract:
 
 
 _ANY = _TagContract("any")
-_TAG_CONTRACTS = {
-    name: _TagContract(name) for name in ("bool", "list", "dict")
-}
+_TAG_CONTRACTS = {name: _TagContract(name) for name in ("bool", "list", "dict")}
 
 _CONTRACT_TAGS = ("int", "float", "str", "bool", "list", "dict")
-_TAG_TYPES = {"int": int, "float": float, "str": str, "bool": bool,
-              "list": list, "dict": dict}
+_TAG_TYPES = {
+    "int": int,
+    "float": float,
+    "str": str,
+    "bool": bool,
+    "list": list,
+    "dict": dict,
+}
 
 
 class SericiteSchema:
     """A record's structural contract: field names + per-field contracts. Structural equality, no runtime name."""
 
-    __slots__ = ("fields", "field_map", "key")
+    __slots__ = ("field_map", "fields", "key")
 
     def __init__(self, fields: tuple[tuple[str, object], ...]) -> None:
         self.fields = fields
@@ -136,8 +140,7 @@ class SericiteSchema:
 
     def __repr__(self) -> str:
         inner = ", ".join(
-            f"{name}: {_contract_text(contract)}"
-            for name, contract in self.fields
+            f"{name}: {_contract_text(contract)}" for name, contract in self.fields
         )
         return f"schema({inner})"
 
@@ -145,7 +148,7 @@ class SericiteSchema:
 class SericiteRecord:
     """A fixed-shape object: payload dict + schema reference. Fields cannot be added or removed; values are contract-checked."""
 
-    __slots__ = ("schema", "fields")
+    __slots__ = ("fields", "schema")
 
     def __init__(self, schema: SericiteSchema, fields: dict[str, object]) -> None:
         self.schema = schema
@@ -160,10 +163,13 @@ def _contract_key(contract: object) -> object:
 
 def _contract_text(contract: object, label: str | None = None) -> str:
     if isinstance(contract, SericiteSchema):
-        body = "{" + ", ".join(
-            f"{name}: {_contract_text(inner)}"
-            for name, inner in contract.fields
-        ) + "}"
+        body = (
+            "{"
+            + ", ".join(
+                f"{name}: {_contract_text(inner)}" for name, inner in contract.fields
+            )
+            + "}"
+        )
         return f"{label} {body}" if label else body
     return label or str(contract)
 
@@ -175,18 +181,16 @@ def _normalize_contract(value: object) -> object:
         return value
     if isinstance(value, _NativeFunction) and value.name in _CONTRACT_TAGS:
         return value.name
-    raise SericiteError(
-        f"not a contract: {_type_name(value)}", kind="contract_error"
-    )
+    raise SericiteError(f"not a contract: {_type_name(value)}", kind="contract_error")
 
 
 def _contract_holds(value: object, contract: object) -> bool:
     if contract == "any":
         return True
     if isinstance(contract, SericiteSchema):
-        return isinstance(value, SericiteRecord) and _schema_fit(
-            value.schema, contract
-        )[0]
+        return (
+            isinstance(value, SericiteRecord) and _schema_fit(value.schema, contract)[0]
+        )
     return type(value) is _TAG_TYPES[contract]
 
 
@@ -194,9 +198,7 @@ def _contract_compatible(actual: object, expected: object) -> bool:
     if expected == "any":
         return True
     if isinstance(expected, SericiteSchema):
-        return isinstance(actual, SericiteSchema) and _schema_fit(
-            actual, expected
-        )[0]
+        return isinstance(actual, SericiteSchema) and _schema_fit(actual, expected)[0]
     return actual == expected
 
 
@@ -204,9 +206,7 @@ def _schema_fit(
     actual: SericiteSchema, expected: SericiteSchema
 ) -> tuple[bool, list[str], list[str]]:
     """Whether actual satisfies expected: all fields present with compatible contracts. Returns (ok, missing fields, contract-mismatched fields)."""
-    missing = [
-        name for name, _ in expected.fields if name not in actual.field_map
-    ]
+    missing = [name for name, _ in expected.fields if name not in actual.field_map]
     mismatched = [
         name
         for name, contract in expected.fields
@@ -270,9 +270,7 @@ def _make_iterator(value: object) -> _Iterator:
         return _Iterator(list(value))
     if type(value) is dict:
         return _Iterator(list(value.keys()))
-    raise SericiteError(
-        f"'{_type_name(value)}' is not iterable", kind="type_error"
-    )
+    raise SericiteError(f"'{_type_name(value)}' is not iterable", kind="type_error")
 
 
 @dataclass(frozen=True, repr=False)
@@ -488,7 +486,9 @@ class SericiteEngine:
 
     def _context(self, handle: VMHandle) -> VMContext:
         if handle._engine is not self:
-            raise SericiteError("VM handle belongs to another engine", kind="internal_error")
+            raise SericiteError(
+                "VM handle belongs to another engine", kind="internal_error"
+            )
         return self._contexts[handle._vm_id]
 
     def _run(self, handle: VMHandle) -> str:
@@ -586,9 +586,7 @@ class SericiteEngine:
         except RecursionError:
             self._fail(
                 context,
-                SericiteError(
-                    "recursion limit exceeded", kind="resource_exhausted"
-                ),
+                SericiteError("recursion limit exceeded", kind="resource_exhausted"),
                 instr.line,
             )
             return False
@@ -598,7 +596,7 @@ class SericiteEngine:
                 return True
             self._fail(context, error, instr.line)
             return False
-        except Exception:
+        except Exception:  # noqa: BLE001 — any host-internal failure becomes internal_error
             self._fail(
                 context,
                 SericiteError("internal runtime error", kind="internal_error"),
@@ -610,9 +608,7 @@ class SericiteEngine:
     def _fail(self, context: VMContext, error: SericiteError, line: int) -> None:
         context.error = error.bind(context.filename, line)
         context.state = (
-            "resource_exhausted"
-            if error.kind == "resource_exhausted"
-            else "error"
+            "resource_exhausted" if error.kind == "resource_exhausted" else "error"
         )
 
     def _handle_exception(self, context: VMContext, error: SericiteError) -> bool:
@@ -636,9 +632,7 @@ class SericiteEngine:
             return True
         return False
 
-    def _find_handler(
-        self, frame: Frame, kind: str
-    ) -> isa.Handler | None:
+    def _find_handler(self, frame: Frame, kind: str) -> isa.Handler | None:
         best: isa.Handler | None = None
         pc = frame.pc
         for handler in frame.code.handlers:
@@ -661,10 +655,7 @@ class SericiteEngine:
                     raise SericiteError(
                         "integer size limit exceeded", kind="resource_exhausted"
                     )
-            elif (
-                type(arg) is str
-                and len(arg) > context.limits.max_string_bytes
-            ):
+            elif type(arg) is str and len(arg) > context.limits.max_string_bytes:
                 raise SericiteError(
                     "string size limit exceeded", kind="resource_exhausted"
                 )
@@ -770,9 +761,7 @@ class SericiteEngine:
                 raise SericiteError(
                     "duplicate field name in schema", kind="contract_error"
                 )
-            contracts = tuple(
-                _normalize_contract(contract) for contract in raw
-            )
+            contracts = tuple(_normalize_contract(contract) for contract in raw)
             self._charge_alloc(context, 64 + count * 16)
             stack.append(SericiteSchema(tuple(zip(names, contracts))))
         elif op == isa.CHECK_ANNOT:
@@ -781,29 +770,29 @@ class SericiteEngine:
             contract = _normalize_contract(contract_value)
             self._charge_work(context, _contract_cost(contract))
             if not _contract_holds(value, contract):
-                label = (
-                    arg if frame.code.origin_vm == context.vm_id else None
-                )
+                label = arg if frame.code.origin_vm == context.vm_id else None
                 raise _contract_violation(
                     "annotated assignment", label, contract, value
                 )
         elif op == isa.MAKE_FUNCTION:
             code, defaults_count, annot_count = arg
             defaults = (
-                tuple(stack[len(stack) - defaults_count - annot_count : len(stack) - annot_count])
+                tuple(
+                    stack[
+                        len(stack) - defaults_count - annot_count : len(stack)
+                        - annot_count
+                    ]
+                )
                 if defaults_count
                 else ()
             )
             annots = tuple(stack[len(stack) - annot_count :])
             del stack[len(stack) - defaults_count - annot_count :]
             param_contracts = tuple(
-                _normalize_contract(v) if v is not None else None
-                for v in annots[:-1]
+                _normalize_contract(v) if v is not None else None for v in annots[:-1]
             )
             return_contract = (
-                _normalize_contract(annots[-1])
-                if annots[-1] is not None
-                else None
+                _normalize_contract(annots[-1]) if annots[-1] is not None else None
             )
             closure = {name: self._cell(frame, name) for name in code.free_names}
             module_locals = (
@@ -811,17 +800,18 @@ class SericiteEngine:
                 if frame.module_locals is not None
                 else context.frames[0].locals
             )
-            granted = (
-                frame.granted
-                if frame.granted is not None
-                else context.granted
-            )
+            granted = frame.granted if frame.granted is not None else context.granted
             if closure:
                 self._charge_alloc(context, 64 + len(closure) * 8)
             stack.append(
                 SericiteFunction(
-                    code, defaults, closure, module_locals, granted,
-                    param_contracts, return_contract,
+                    code,
+                    defaults,
+                    closure,
+                    module_locals,
+                    granted,
+                    param_contracts,
+                    return_contract,
                     frame.home or context,
                 )
             )
@@ -849,9 +839,7 @@ class SericiteEngine:
                 raise frame.active_error
             message = stack.pop()
             if type(message) is not str:
-                raise SericiteError(
-                    "raise expects a string message", kind="type_error"
-                )
+                raise SericiteError("raise expects a string message", kind="type_error")
             raise SericiteError(message, kind="raise_error")
         elif op == isa.CALL:
             argc, kw_names = arg, ()
@@ -864,13 +852,10 @@ class SericiteEngine:
         elif op == isa.RETURN:
             value = stack.pop() if stack else None
             if frame.return_contract is not None:
-                self._charge_work(
-                    context, _contract_cost(frame.return_contract)
-                )
+                self._charge_work(context, _contract_cost(frame.return_contract))
                 if not _contract_holds(value, frame.return_contract):
                     raise _contract_violation(
-                        "return value of "
-                        f"{frame.display_name or frame.code.name}",
+                        f"return value of {frame.display_name or frame.code.name}",
                         frame.return_label,
                         frame.return_contract,
                         value,
@@ -971,9 +956,7 @@ class SericiteEngine:
             stack.append(result)
             return
         if isinstance(function, _GrantedHostFunction):
-            budget = [
-                context.limits.max_list_size + context.limits.max_dict_size
-            ]
+            budget = [context.limits.max_list_size + context.limits.max_dict_size]
             host_args = [_to_host(value, budget) for value in args]
             host_kwargs = {
                 key: _to_host(value, budget) for key, value in kwargs.items()
@@ -982,18 +965,15 @@ class SericiteEngine:
                 raw = function.callback(*host_args, **host_kwargs)
             except SericiteError:
                 raise
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 — host exceptions are sanitized into ffi_error
                 raise SericiteError(
-                    f"host function '{function.name}' failed with "
-                    f"{type(exc).__name__}",
+                    f"host function '{function.name}' failed with {type(exc).__name__}",
                     kind="ffi_error",
                 ) from None
             result_budget = [
                 context.limits.max_list_size + context.limits.max_dict_size
             ]
-            result = _from_host(
-                raw, result_budget, context.limits.max_string_bytes
-            )
+            result = _from_host(raw, result_budget, context.limits.max_string_bytes)
             spent = (
                 context.limits.max_list_size
                 + context.limits.max_dict_size
@@ -1116,8 +1096,7 @@ class SericiteEngine:
         fields = schema.fields
         if len(args) > len(fields):
             raise SericiteError(
-                f"schema() takes {len(fields)} positional argument(s), "
-                f"got {len(args)}",
+                f"schema() takes {len(fields)} positional argument(s), got {len(args)}",
                 kind="contract_error",
             )
         values: dict[str, object] = {}
@@ -1145,13 +1124,9 @@ class SericiteEngine:
             value = values[name]
             self._charge_work(context, _contract_cost(contract))
             if not _contract_holds(value, contract):
-                raise _contract_violation(
-                    f"field {name}", None, contract, value
-                )
+                raise _contract_violation(f"field {name}", None, contract, value)
         self._charge_alloc(context, 64 + len(fields) * 16)
-        return SericiteRecord(
-            schema, {name: values[name] for name, _ in fields}
-        )
+        return SericiteRecord(schema, {name: values[name] for name, _ in fields})
 
     def _store_attr(
         self,
@@ -1163,8 +1138,7 @@ class SericiteEngine:
     ) -> None:
         if not isinstance(target, SericiteRecord):
             raise SericiteError(
-                f"'{_type_name(target)}' does not support attribute "
-                "assignment",
+                f"'{_type_name(target)}' does not support attribute assignment",
                 kind="type_error",
             )
         schema = target.schema
@@ -1177,9 +1151,7 @@ class SericiteEngine:
         contract = schema.field_map[attr]
         self._charge_work(context, _contract_cost(contract))
         if not _contract_holds(value, contract):
-            raise _contract_violation(
-                f"field {attr}", None, contract, value
-            )
+            raise _contract_violation(f"field {attr}", None, contract, value)
         target.fields[attr] = value
 
     def _bind_arguments(
@@ -1203,8 +1175,7 @@ class SericiteEngine:
 
         if len(args) > len(params):
             raise SericiteError(
-                f"{fname}() expects {len(params)} argument(s), "
-                f"got {len(args)}",
+                f"{fname}() expects {len(params)} argument(s), got {len(args)}",
                 kind="arity_error",
             )
         locals_ = dict(zip(params, args))
@@ -1264,9 +1235,7 @@ class SericiteEngine:
         )
         if name in module_locals:
             return module_locals[name]
-        granted = (
-            frame.granted if frame.granted is not None else context.granted
-        )
+        granted = frame.granted if frame.granted is not None else context.granted
         if name in granted:
             return granted[name]
         # Builtins resolve back to the code's defining VM (home), not the currently executing VM
@@ -1282,9 +1251,7 @@ class SericiteEngine:
         caller: VMContext | None = None,
     ) -> _NativeFunction | None:
         if name == "input":
-            return _NativeFunction(
-                "input", lambda: self._read_input(home), home
-            )
+            return _NativeFunction("input", lambda: self._read_input(home), home)
         if name == "print":
             return _NativeFunction(
                 "print", lambda *values: self._print(home, values), home
@@ -1302,20 +1269,17 @@ class SericiteEngine:
                 "str", lambda value: self._str_builtin(home, value), home
             )
         if name == "range":
-            return _NativeFunction(
-                "range", lambda *args: self._range(home, args), home
-            )
+            return _NativeFunction("range", lambda *args: self._range(home, args), home)
         if name == "keys":
-            return _NativeFunction(
-                "keys", lambda value: self._keys(home, value), home
-            )
+            return _NativeFunction("keys", lambda value: self._keys(home, value), home)
         if name == "any":
             return _ANY
         if name in _TAG_CONTRACTS:
             return _TAG_CONTRACTS[name]
         if name == "wrap":
             return _NativeFunction(
-                "wrap", lambda schema, data: self._wrap(home, schema, data),
+                "wrap",
+                lambda schema, data: self._wrap(home, schema, data),
                 home,
             )
         if name == "unwrap":
@@ -1371,9 +1335,7 @@ class SericiteEngine:
             overrides: dict[str, int] = {}
             for key, value in config.items():
                 if key not in _VM_OPTIONS:
-                    raise SericiteError(
-                        f"unknown VM option: {key}", kind="type_error"
-                    )
+                    raise SericiteError(f"unknown VM option: {key}", kind="type_error")
                 if type(value) is not int or value < 0:
                     raise SericiteError(
                         f"VM option {key} must be a non-negative int",
@@ -1385,9 +1347,7 @@ class SericiteEngine:
         if depth > limits.max_vm_depth:
             raise SericiteError("VM depth limit exceeded", kind="resource_exhausted")
         if causal.child_count >= causal.limits.max_child_vms:
-            raise SericiteError(
-                "child VM limit exceeded", kind="resource_exhausted"
-            )
+            raise SericiteError("child VM limit exceeded", kind="resource_exhausted")
         causal.child_count += 1
         return self._create_vm(
             source=source,
@@ -1404,9 +1364,7 @@ class SericiteEngine:
         if functions is None:
             return {}
         if not isinstance(functions, dict):
-            raise SericiteError(
-                "VM option functions must be a dict", kind="type_error"
-            )
+            raise SericiteError("VM option functions must be a dict", kind="type_error")
         granted: dict[str, object] = {}
         for name, value in functions.items():
             _check_grant_name(name)
@@ -1451,9 +1409,7 @@ class SericiteEngine:
     def _read_input(self, context: VMContext) -> str:
         value = context.io.read_input()
         if len(value) > context.limits.max_string_bytes:
-            raise SericiteError(
-                "string size limit exceeded", kind="resource_exhausted"
-            )
+            raise SericiteError("string size limit exceeded", kind="resource_exhausted")
         self._charge_alloc(context, len(value) * 4)
         return value
 
@@ -1483,6 +1439,7 @@ class SericiteEngine:
             )
         self._charge_alloc(context, len(value) * 8)
         return list(value.keys())
+
     def _convert_int(self, context: VMContext, value: object) -> int:
         if type(value) is bool:
             return int(value)
@@ -1514,9 +1471,7 @@ class SericiteEngine:
     def _str_builtin(self, context: VMContext, value: object) -> str:
         result = _to_str(value)
         if len(result) > context.limits.max_string_bytes:
-            raise SericiteError(
-                "string size limit exceeded", kind="resource_exhausted"
-            )
+            raise SericiteError("string size limit exceeded", kind="resource_exhausted")
         self._charge_alloc(context, len(result) * 4)
         self._charge_work(context, len(result) // 64)
         return result
@@ -1554,9 +1509,7 @@ class SericiteEngine:
             raise SericiteError("range() step cannot be zero", kind="type_error")
         result = range(*args)
         if len(result) > context.limits.max_list_size:
-            raise SericiteError(
-                "list size limit exceeded", kind="resource_exhausted"
-            )
+            raise SericiteError("list size limit exceeded", kind="resource_exhausted")
         self._charge_alloc(context, len(result) * 8)
         return list(result)
 
@@ -1594,9 +1547,7 @@ class SericiteEngine:
             if _is_number(left) and _is_number(right):
                 if right == 0:
                     raise SericiteError(
-                        "division by zero"
-                        if op != "%"
-                        else "modulo by zero",
+                        "division by zero" if op != "%" else "modulo by zero",
                         kind="zero_division",
                     )
                 if op == "/":
@@ -1710,8 +1661,7 @@ class SericiteEngine:
                 return left > right
             return left >= right
         raise SericiteError(
-            f"'{op}' not supported between {_type_name(left)} "
-            f"and {_type_name(right)}",
+            f"'{op}' not supported between {_type_name(left)} and {_type_name(right)}",
             kind="type_error",
         )
 
@@ -1749,10 +1699,7 @@ class SericiteEngine:
                     f"unhashable key type: {_type_name(index)}",
                     kind="type_error",
                 )
-            if (
-                index not in target
-                and len(target) >= context.limits.max_dict_size
-            ):
+            if index not in target and len(target) >= context.limits.max_dict_size:
                 raise SericiteError(
                     "dict size limit exceeded", kind="resource_exhausted"
                 )
@@ -1788,15 +1735,11 @@ class SericiteEngine:
             if attr in ("snapshot", "stdout", "list_dir", "run"):
                 return _NativeFunction(
                     f"VM.{attr}",
-                    lambda *a, **k: self._charged_vm_method(
-                        context, value, attr, a, k
-                    ),
+                    lambda *a, **k: self._charged_vm_method(context, value, attr, a, k),
                 )
             return _NativeFunction(f"VM.{attr}", getattr(value, attr))
         if isinstance(value, VMHandle):
-            raise SericiteError(
-                f"VM has no method '{attr}'", kind="attribute_error"
-            )
+            raise SericiteError(f"VM has no method '{attr}'", kind="attribute_error")
         if type(value) is dict:
             raise SericiteError(
                 "dict has no attribute access; use d[key] to look up a key",
@@ -1807,9 +1750,7 @@ class SericiteEngine:
             kind="type_error",
         )
 
-    def _wrap(
-        self, context: VMContext, schema: object, data: object
-    ) -> SericiteRecord:
+    def _wrap(self, context: VMContext, schema: object, data: object) -> SericiteRecord:
         if not isinstance(schema, SericiteSchema):
             raise SericiteError(
                 f"wrap() expects a schema, got {_type_name(schema)}",
@@ -1829,9 +1770,7 @@ class SericiteEngine:
             if missing:
                 parts.append("missing: " + ", ".join(sorted(missing)))
             if extra:
-                parts.append(
-                    "unexpected: " + ", ".join(str(key) for key in extra)
-                )
+                parts.append("unexpected: " + ", ".join(str(key) for key in extra))
             raise SericiteError(
                 f"wrap() key mismatch ({'; '.join(parts)})",
                 kind="contract_error",
@@ -1840,13 +1779,9 @@ class SericiteEngine:
             value = data[name]
             self._charge_work(context, _contract_cost(contract))
             if not _contract_holds(value, contract):
-                raise _contract_violation(
-                    f"field {name}", None, contract, value
-                )
+                raise _contract_violation(f"field {name}", None, contract, value)
         self._charge_alloc(context, 64 + len(schema.fields) * 16)
-        return SericiteRecord(
-            schema, {name: data[name] for name, _ in schema.fields}
-        )
+        return SericiteRecord(schema, {name: data[name] for name, _ in schema.fields})
 
     def _unwrap(self, context: VMContext, record: object) -> dict:
         if not isinstance(record, SericiteRecord):
@@ -1928,10 +1863,7 @@ class SericiteEngine:
             _seen.add(ident)
             try:
                 if isinstance(value, list):
-                    return [
-                        self._safe_value(item, _seen, _depth + 1)
-                        for item in value
-                    ]
+                    return [self._safe_value(item, _seen, _depth + 1) for item in value]
                 return {
                     str(key): self._safe_value(item, _seen, _depth + 1)
                     for key, item in value.items()
@@ -2043,9 +1975,7 @@ def _from_host(
         return value
     if type(value) is str:
         if len(value) > max_string_bytes:
-            raise SericiteError(
-                "FFI result string too large", kind="ffi_error"
-            )
+            raise SericiteError("FFI result string too large", kind="ffi_error")
         return value
     if type(value) in (list, tuple):
         return [_from_host(item, budget, max_string_bytes, depth + 1) for item in value]
@@ -2054,15 +1984,13 @@ def _from_host(
         for key, item in value.items():
             if type(key) not in (str, int, float, bool) and key is not None:
                 raise SericiteError(
-                    f"FFI result has unhashable key of type "
-                    f"'{type(key).__name__}'",
+                    f"FFI result has unhashable key of type '{type(key).__name__}'",
                     kind="ffi_error",
                 )
             result[key] = _from_host(item, budget, max_string_bytes, depth + 1)
         return result
     raise SericiteError(
-        f"host function returned unsupported type "
-        f"'{type(value).__name__}'",
+        f"host function returned unsupported type '{type(value).__name__}'",
         kind="ffi_error",
     )
 
@@ -2085,9 +2013,7 @@ def _estimate_size(value: object, budget: list[int]) -> int:
     if type(value) is str:
         return len(value) * 4
     if type(value) is list:
-        return len(value) * 8 + sum(
-            _estimate_size(item, budget) for item in value
-        )
+        return len(value) * 8 + sum(_estimate_size(item, budget) for item in value)
     if type(value) is dict:
         return len(value) * 16 + sum(
             _estimate_size(key, budget) + _estimate_size(item, budget)
@@ -2168,8 +2094,7 @@ def _equals_container(
         )
     if type(left) is dict:
         return left.keys() == right.keys() and all(
-            _equals(left[key], right[key], active, cache, counter)
-            for key in left
+            _equals(left[key], right[key], active, cache, counter) for key in left
         )
     return left.schema.key == right.schema.key and _equals(
         left.fields, right.fields, active, cache, counter
@@ -2192,16 +2117,14 @@ def _contains(
         return item in container
     if type(container) is list:
         return any(
-            _equals(element, item, _active, _cache, _counter)
-            for element in container
+            _equals(element, item, _active, _cache, _counter) for element in container
         )
     if type(container) is str and type(item) is str:
         if _counter is not None:
             _counter[0] += len(container)
         return item in container
     raise SericiteError(
-        f"'in' not supported between {_type_name(item)} "
-        f"and {_type_name(container)}",
+        f"'in' not supported between {_type_name(item)} and {_type_name(container)}",
         kind="type_error",
     )
 
@@ -2268,9 +2191,7 @@ def _to_str(value: object, _seen: set[int] | None = None) -> str:
         _seen.add(ident)
         try:
             if type(value) is list:
-                return "[" + ", ".join(
-                    _repr_str(item, _seen) for item in value
-                ) + "]"
+                return "[" + ", ".join(_repr_str(item, _seen) for item in value) + "]"
             if isinstance(value, SericiteRecord):
                 return (
                     "record("

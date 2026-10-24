@@ -11,14 +11,10 @@ def run(source, inputs=None, limits=None, functions=None):
 
 class DictTests(unittest.TestCase):
     def test_literal_and_index(self):
-        self.assertEqual(
-            run('d = {"a": 1, "b": 2}\nprint(d["a"], d["b"])\n'), "1 2\n"
-        )
+        self.assertEqual(run('d = {"a": 1, "b": 2}\nprint(d["a"], d["b"])\n'), "1 2\n")
 
     def test_empty_dict(self):
-        self.assertEqual(
-            run("d = {}\nprint(len(d), d == {})\n"), "0 True\n"
-        )
+        self.assertEqual(run("d = {}\nprint(len(d), d == {})\n"), "0 True\n")
 
     def test_store_new_key_and_overwrite(self):
         source = 'd = {"a": 1}\nd["b"] = 2\nd["a"] = 9\nprint(d["a"], d["b"])\n'
@@ -28,7 +24,7 @@ class DictTests(unittest.TestCase):
         source = (
             "d = {}\n"
             "try:\n"
-            "    x = d[\"missing\"]\n"
+            '    x = d["missing"]\n'
             "except key_error as e:\n"
             '    print("caught: " + e)\n'
         )
@@ -72,9 +68,7 @@ class DictTests(unittest.TestCase):
         self.assertEqual(run(source), "1 two t n f\n")
 
     def test_keys_builtin(self):
-        self.assertEqual(
-            run('d = {"b": 2, "a": 1}\nprint(keys(d))\n'), "['b', 'a']\n"
-        )
+        self.assertEqual(run('d = {"b": 2, "a": 1}\nprint(keys(d))\n'), "['b', 'a']\n")
 
     def test_keys_rejects_non_dict(self):
         engine = SericiteEngine()
@@ -139,8 +133,7 @@ class HostFunctionTests(unittest.TestCase):
             return {"status": 200, "body": "hello " + url, "tags": ["x", "y"]}
 
         source = (
-            'r = http_get("example.com")\n'
-            'print(r["status"], r["body"], r["tags"][1])\n'
+            'r = http_get("example.com")\nprint(r["status"], r["body"], r["tags"][1])\n'
         )
         self.assertEqual(
             run(source, functions={"http_get": http_get}),
@@ -153,12 +146,7 @@ class HostFunctionTests(unittest.TestCase):
         def give():
             return shared
 
-        source = (
-            "a = give()\n"
-            'a["items"][0] = 99\n'
-            "b = give()\n"
-            'print(b["items"][0])\n'
-        )
+        source = 'a = give()\na["items"][0] = 99\nb = give()\nprint(b["items"][0])\n'
         self.assertEqual(run(source, functions={"give": give}), "1\n")
         self.assertEqual(shared, {"items": [1, 2]})
 
@@ -168,7 +156,6 @@ class HostFunctionTests(unittest.TestCase):
         def take(value):
             seen.append(list(value))
             value[0] = -1
-            return None
 
         source = "a = [1, 2]\ntake(a)\nprint(a[0])\n"
         self.assertEqual(run(source, functions={"take": take}), "1\n")
@@ -176,7 +163,7 @@ class HostFunctionTests(unittest.TestCase):
 
     def test_handle_cannot_cross_boundary(self):
         source = (
-            "sub = VM(\"\")\n"
+            'sub = VM("")\n'
             "try:\n"
             "    probe(sub)\n"
             "except ffi_error:\n"
@@ -187,26 +174,14 @@ class HostFunctionTests(unittest.TestCase):
         )
 
     def test_alien_result_rejected(self):
-        source = (
-            "try:\n"
-            "    bad()\n"
-            "except ffi_error as e:\n"
-            '    print("rejected")\n'
-        )
-        self.assertEqual(
-            run(source, functions={"bad": lambda: object()}), "rejected\n"
-        )
+        source = 'try:\n    bad()\nexcept ffi_error as e:\n    print("rejected")\n'
+        self.assertEqual(run(source, functions={"bad": lambda: object()}), "rejected\n")
 
     def test_host_exception_becomes_ffi_error(self):
         def boom():
             raise ValueError("kaput /home/secret")
 
-        source = (
-            "try:\n"
-            "    boom()\n"
-            "except ffi_error as e:\n"
-            '    print("caught: " + e)\n'
-        )
+        source = 'try:\n    boom()\nexcept ffi_error as e:\n    print("caught: " + e)\n'
         output = run(source, functions={"boom": boom})
         # no host exception message (prevents leaking host internals), only the exception type name
         self.assertIn("ValueError", output)
@@ -219,10 +194,7 @@ class HostFunctionTests(unittest.TestCase):
             raise SericiteError("host says no", kind="file_not_found")
 
         source = (
-            "try:\n"
-            "    picky(1)\n"
-            "except file_not_found:\n"
-            '    print("precise kind")\n'
+            'try:\n    picky(1)\nexcept file_not_found:\n    print("precise kind")\n'
         )
         self.assertEqual(run(source, functions={"picky": picky}), "precise kind\n")
 

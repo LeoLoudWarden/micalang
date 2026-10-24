@@ -11,13 +11,7 @@ def run(source, inputs=None, limits=None, functions=None):
 
 class SecurityQuotaTests(unittest.TestCase):
     def test_string_concat_size_limit(self):
-        source = (
-            's = "x"\n'
-            "i = 0\n"
-            "while i < 30:\n"
-            "    s = s + s\n"
-            "    i = i + 1\n"
-        )
+        source = 's = "x"\ni = 0\nwhile i < 30:\n    s = s + s\n    i = i + 1\n'
         with self.assertRaises(SericiteError) as ctx:
             run(source)
         self.assertEqual(ctx.exception.kind, "resource_exhausted")
@@ -86,24 +80,12 @@ class SecurityQuotaTests(unittest.TestCase):
         self.assertEqual(ctx.exception.kind, "ffi_error")
 
     def test_ffi_huge_string_result_rejected(self):
-        source = (
-            "try:\n"
-            "    big()\n"
-            "except ffi_error:\n"
-            '    print("blocked")\n'
-        )
+        source = 'try:\n    big()\nexcept ffi_error:\n    print("blocked")\n'
         output = run(source, functions={"big": lambda: "x" * 10_000_000})
         self.assertEqual(output, "blocked\n")
 
     def test_deep_structure_snapshot_no_recursion_leak(self):
-        source = (
-            "x = 1\n"
-            "i = 0\n"
-            "while i < 2000:\n"
-            "    x = [x]\n"
-            "    i = i + 1\n"
-            "print(1)\n"
-        )
+        source = "x = 1\ni = 0\nwhile i < 2000:\n    x = [x]\n    i = i + 1\nprint(1)\n"
         engine = SericiteEngine()
         vm = engine.create_root(source)
         self.assertEqual(vm.run(), "1\n")
@@ -149,9 +131,7 @@ class SecurityQuotaTests(unittest.TestCase):
             '    print("overflow caught")\n'
         )
         engine = SericiteEngine(limits=limits)
-        self.assertEqual(
-            engine.create_root(source).run(), "overflow caught\n"
-        )
+        self.assertEqual(engine.create_root(source).run(), "overflow caught\n")
 
     def test_input_length_limited(self):
         limits = SericiteLimits(max_string_bytes=10)
@@ -170,8 +150,7 @@ class SecurityQuotaTests(unittest.TestCase):
     def test_alloc_charges_ancestors(self):
         child = 's = "a"\nfor i in range(16):\n    s = s + s\n'
         source = (
-            "sub = VM(" + repr(child) + ", max_total_bytes=10_000_000)\n"
-            "sub.run()\n"
+            "sub = VM(" + repr(child) + ", max_total_bytes=10_000_000)\nsub.run()\n"
         )
         limits = SericiteLimits(max_total_bytes=100_000)
         engine = SericiteEngine(limits=limits)
@@ -199,12 +178,7 @@ class ForLoopTests(unittest.TestCase):
         self.assertEqual(run(source), "0\n1\n2\n")
 
     def test_for_else_without_break(self):
-        source = (
-            "for i in range(2):\n"
-            "    print(i)\n"
-            "else:\n"
-            '    print("done")\n'
-        )
+        source = 'for i in range(2):\n    print(i)\nelse:\n    print("done")\n'
         self.assertEqual(run(source), "0\n1\ndone\n")
 
     def test_for_else_with_break(self):
@@ -220,19 +194,12 @@ class ForLoopTests(unittest.TestCase):
 
     def test_for_continue(self):
         source = (
-            "for i in range(4):\n"
-            "    if i % 2 == 0:\n"
-            "        continue\n"
-            "    print(i)\n"
+            "for i in range(4):\n    if i % 2 == 0:\n        continue\n    print(i)\n"
         )
         self.assertEqual(run(source), "1\n3\n")
 
     def test_nested_for(self):
-        source = (
-            "for a in [1, 2]:\n"
-            "    for b in [10, 20]:\n"
-            "        print(a + b)\n"
-        )
+        source = "for a in [1, 2]:\n    for b in [10, 20]:\n        print(a + b)\n"
         self.assertEqual(run(source), "11\n21\n12\n22\n")
 
     def test_for_not_iterable(self):
@@ -249,23 +216,11 @@ class ForLoopTests(unittest.TestCase):
         self.assertEqual(ctx.exception.kind, "validation_error")
 
     def test_while_else(self):
-        source = (
-            "i = 0\n"
-            "while i < 2:\n"
-            "    i = i + 1\n"
-            "else:\n"
-            '    print("done")\n'
-        )
+        source = 'i = 0\nwhile i < 2:\n    i = i + 1\nelse:\n    print("done")\n'
         self.assertEqual(run(source), "done\n")
 
     def test_while_else_skipped_by_break(self):
-        source = (
-            "while True:\n"
-            "    break\n"
-            "else:\n"
-            '    print("done")\n'
-            'print("after")\n'
-        )
+        source = 'while True:\n    break\nelse:\n    print("done")\nprint("after")\n'
         self.assertEqual(run(source), "after\n")
 
     def test_snapshot_hides_for_internals(self):
@@ -279,7 +234,7 @@ class ForLoopTests(unittest.TestCase):
 
 class FinallyTests(unittest.TestCase):
     def test_finally_on_normal_path(self):
-        source = "try:\n    x = 1\nfinally:\n    print(\"f\")\n"
+        source = 'try:\n    x = 1\nfinally:\n    print("f")\n'
         self.assertEqual(run(source), "f\n")
 
     def test_finally_on_exception(self):
@@ -320,9 +275,7 @@ class FinallyTests(unittest.TestCase):
 
     def test_finally_reraises_original_kind(self):
         engine = SericiteEngine()
-        vm = engine.create_root(
-            "try:\n    x = missing\nfinally:\n    y = 1\n"
-        )
+        vm = engine.create_root("try:\n    x = missing\nfinally:\n    y = 1\n")
         with self.assertRaises(SericiteError) as ctx:
             vm.run()
         self.assertEqual(ctx.exception.kind, "name_error")
@@ -359,7 +312,7 @@ class FinallyTests(unittest.TestCase):
 class RaiseTests(unittest.TestCase):
     def test_raise_message_catchable(self):
         source = (
-            'try:\n'
+            "try:\n"
             '    raise "custom boom"\n'
             "except raise_error as e:\n"
             '    print("caught: " + e)\n'
@@ -399,7 +352,7 @@ class RaiseTests(unittest.TestCase):
             "try:\n"
             "    f()\n"
             "except raise_error as e:\n"
-            '    print(e)\n'
+            "    print(e)\n"
         )
         self.assertEqual(run(source), "from f\n")
 
@@ -424,13 +377,7 @@ class DefaultParamTests(unittest.TestCase):
         self.assertEqual(ctx.exception.kind, "arity_error")
 
     def test_defaults_evaluated_at_def_time(self):
-        source = (
-            "x = 10\n"
-            "def f(a=x):\n"
-            "    return a\n"
-            "x = 20\n"
-            "print(f())\n"
-        )
+        source = "x = 10\ndef f(a=x):\n    return a\nx = 20\nprint(f())\n"
         self.assertEqual(run(source), "10\n")
 
     def test_granted_function_with_defaults(self):
@@ -460,7 +407,7 @@ class PassTests(unittest.TestCase):
 
 class TernaryTests(unittest.TestCase):
     def test_basic(self):
-        source = 'x = 1 if True else 2\ny = 1 if False else 2\nprint(x, y)\n'
+        source = "x = 1 if True else 2\ny = 1 if False else 2\nprint(x, y)\n"
         self.assertEqual(run(source), "1 2\n")
 
     def test_short_circuit(self):
@@ -524,7 +471,7 @@ class ExternalAuditTests(unittest.TestCase):
     def test_total_vms_limit(self):
         limits = SericiteLimits(max_total_vms=3)
         engine = SericiteEngine(limits=limits)
-        source = "for i in range(10):\n    sub = VM(\"x = 1\\n\")\n"
+        source = 'for i in range(10):\n    sub = VM("x = 1\\n")\n'
         vm = engine.create_root(source)
         with self.assertRaises(SericiteError) as ctx:
             vm.run()
@@ -575,13 +522,7 @@ class ExternalAuditTests(unittest.TestCase):
     def test_for_over_string_charges_alloc(self):
         limits = SericiteLimits(max_total_bytes=10_000)
         engine = SericiteEngine(limits=limits)
-        source = (
-            's = "x"\n'
-            "for i in range(10):\n"
-            "    s = s + s\n"
-            "for c in s:\n"
-            "    pass\n"
-        )
+        source = 's = "x"\nfor i in range(10):\n    s = s + s\nfor c in s:\n    pass\n'
         vm = engine.create_root(source)
         with self.assertRaises(SericiteError) as ctx:
             vm.run()
@@ -625,4 +566,3 @@ class ExternalAuditTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

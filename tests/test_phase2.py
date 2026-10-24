@@ -22,7 +22,9 @@ class ArithmeticTests(unittest.TestCase):
         self.assertEqual(run("print(7 // 2)\nprint(7 % 2)\n"), "3\n1\n")
 
     def test_unary_minus_and_not(self):
-        self.assertEqual(run("x = 5\nprint(-x)\nprint(not x)\nprint(not 0)\n"), "-5\nFalse\nTrue\n")
+        self.assertEqual(
+            run("x = 5\nprint(-x)\nprint(not x)\nprint(not 0)\n"), "-5\nFalse\nTrue\n"
+        )
 
     def test_string_concat(self):
         self.assertEqual(run('print("ab" + "cd")\n'), "abcd\n")
@@ -44,8 +46,10 @@ class ArithmeticTests(unittest.TestCase):
 class CompareAndLogicTests(unittest.TestCase):
     def test_comparisons(self):
         self.assertEqual(
-            run("print(1 < 2)\nprint(2 <= 1)\nprint(1 == 1.0)\n"
-                'print("a" < "b")\nprint(1 != 2)\n'),
+            run(
+                "print(1 < 2)\nprint(2 <= 1)\nprint(1 == 1.0)\n"
+                'print("a" < "b")\nprint(1 != 2)\n'
+            ),
             "True\nFalse\nTrue\nTrue\nTrue\n",
         )
 
@@ -71,8 +75,10 @@ class CompareAndLogicTests(unittest.TestCase):
 
     def test_truthiness(self):
         self.assertEqual(
-            run('print(not "")\nprint(not [])\nprint(not [0])\n'
-                "print(not None)\nprint(not 0.0)\n"),
+            run(
+                'print(not "")\nprint(not [])\nprint(not [0])\n'
+                "print(not None)\nprint(not 0.0)\n"
+            ),
             "True\nTrue\nFalse\nTrue\nTrue\n",
         )
 
@@ -146,11 +152,7 @@ class ControlFlowTests(unittest.TestCase):
 
 class FunctionTests(unittest.TestCase):
     def test_function_def_and_call(self):
-        source = (
-            "def add(a, b):\n"
-            "    return a + b\n"
-            "print(add(2, 3))\n"
-        )
+        source = "def add(a, b):\n    return a + b\nprint(add(2, 3))\n"
         self.assertEqual(run(source), "5\n")
 
     def test_recursion_fib(self):
@@ -167,14 +169,7 @@ class FunctionTests(unittest.TestCase):
         self.assertEqual(run("def f():\n    x = 1\nprint(f())\n"), "None\n")
 
     def test_local_scope_isolated(self):
-        source = (
-            "x = 1\n"
-            "def f():\n"
-            "    x = 99\n"
-            "    return x\n"
-            "print(f())\n"
-            "print(x)\n"
-        )
+        source = "x = 1\ndef f():\n    x = 99\n    return x\nprint(f())\nprint(x)\n"
         self.assertEqual(run(source), "99\n1\n")
 
     def test_function_reads_module_globals(self):
@@ -201,9 +196,7 @@ class ListTests(unittest.TestCase):
         self.assertEqual(run("x = [1, 2, 3]\nprint(x[0])\nprint(x[-1])\n"), "1\n3\n")
 
     def test_index_write(self):
-        self.assertEqual(
-            run("x = [1, 2, 3]\nx[1] = 99\nprint(x)\n"), "[1, 99, 3]\n"
-        )
+        self.assertEqual(run("x = [1, 2, 3]\nx[1] = 99\nprint(x)\n"), "[1, 99, 3]\n")
 
     def test_list_concat(self):
         self.assertEqual(run("print([1] + [2, 3])\n"), "[1, 2, 3]\n")
@@ -228,8 +221,10 @@ class BuiltinTests(unittest.TestCase):
 
     def test_int_float_str(self):
         self.assertEqual(
-            run('print(int("42"))\nprint(int(3.9))\nprint(float("0.5"))\n'
-                "print(str(12))\nprint(str(None))\n"),
+            run(
+                'print(int("42"))\nprint(int(3.9))\nprint(float("0.5"))\n'
+                "print(str(12))\nprint(str(None))\n"
+            ),
             "42\n3\n0.5\n12\nNone\n",
         )
 
@@ -294,7 +289,9 @@ class ResourceLimitTests(unittest.TestCase):
 
     def test_terminate(self):
         engine = SericiteEngine()
-        vm = engine.create_root('sub = VM("while True:\\n    x = 1")\nsub.step()\nsub.terminate()\nprint("stopped")\n')
+        vm = engine.create_root(
+            'sub = VM("while True:\\n    x = 1")\nsub.step()\nsub.terminate()\nprint("stopped")\n'
+        )
         output = vm.run()
         self.assertEqual(output, "stopped\n")
 

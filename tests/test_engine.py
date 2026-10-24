@@ -94,7 +94,7 @@ class SubVMTests(unittest.TestCase):
         self.assertIn("state=ready", sub)
 
     def test_nested_vm_creation(self):
-        mid_src = 'inner = VM("print(\'deep\')")\nprint(inner.run())\n'
+        mid_src = "inner = VM(\"print('deep')\")\nprint(inner.run())\n"
         engine = SericiteEngine()
         vm = engine.create_root(f"sub = VM({mid_src!r})\nprint(sub.run())\n")
         self.assertEqual(vm.run(), "deep\n\n\n")
@@ -122,9 +122,7 @@ class SubVMTests(unittest.TestCase):
     def test_child_vm_stdout_does_not_leak_to_parent(self):
         engine = SericiteEngine()
         vm = engine.create_root(
-            'sub = VM("print(\\"inner\\")")\n'
-            "sub.run()\n"
-            'print("outer")\n'
+            'sub = VM("print(\\"inner\\")")\nsub.run()\nprint("outer")\n'
         )
         output = vm.run()
         self.assertEqual(output, "outer\n")

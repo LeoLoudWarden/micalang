@@ -14,6 +14,7 @@ class CliTests(unittest.TestCase):
             capture_output=True,
             text=True,
             cwd=PROJECT_ROOT,
+            check=False,
         )
 
     def test_root_example(self):

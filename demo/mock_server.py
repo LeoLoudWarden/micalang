@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-MIDDLE_CODE = '''prompt_inner = read_file("/prompt_inner.txt")
+MIDDLE_CODE = """prompt_inner = read_file("/prompt_inner.txt")
 doc = read_file("/sericite语言特性速览.md")
 
 tools = [
@@ -67,7 +67,7 @@ while not done and rounds < 20:
             messages = messages + [{"role": "tool", "tool_call_id": call["id"], "content": result}]
 
 print("内层最终回答:", final)
-'''
+"""
 
 PRACTICE_CODE = """print("外层练习: fib")
 a = 0
@@ -127,18 +127,30 @@ class Handler(BaseHTTPRequestHandler):
         type(self).outer_turn += 1
         turn = type(self).outer_turn
         if turn == 1:
-            return _reply(tool_calls=[_tool_call(1, "file_read", {"path": "/sericite语言特性速览.md"})])
+            return _reply(
+                tool_calls=[
+                    _tool_call(1, "file_read", {"path": "/sericite语言特性速览.md"})
+                ]
+            )
         if turn == 2:
-            return _reply(tool_calls=[_tool_call(2, "sericite_exec", {"code": PRACTICE_CODE})])
+            return _reply(
+                tool_calls=[_tool_call(2, "sericite_exec", {"code": PRACTICE_CODE})]
+            )
         if turn == 3:
-            return _reply(tool_calls=[_tool_call(3, "sericite_exec", {"code": MIDDLE_CODE})])
+            return _reply(
+                tool_calls=[_tool_call(3, "sericite_exec", {"code": MIDDLE_CODE})]
+            )
         return _reply(content="外层收尾：练习完成，内层会话也跑完了。")
 
     def _inner_reply(self) -> dict:
         type(self).inner_turn += 1
         turn = type(self).inner_turn
         if turn == 1:
-            return _reply(tool_calls=[_tool_call(101, "sericite_exec", {"code": INNER_PRACTICE_CODE})])
+            return _reply(
+                tool_calls=[
+                    _tool_call(101, "sericite_exec", {"code": INNER_PRACTICE_CODE})
+                ]
+            )
         return _reply(content="内层练习完成：写了文件、读了回来、遍历了字典。")
 
     def log_message(self, *args) -> None:

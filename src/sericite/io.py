@@ -56,8 +56,7 @@ class VirtualIO:
             raise TypeError("input provider must return a string or None")
         if value.endswith("\n"):
             value = value[:-1]
-            if value.endswith("\r"):
-                value = value[:-1]
+            value = value.removesuffix("\r")
         return value
 
     def write_output(self, value: str) -> None:

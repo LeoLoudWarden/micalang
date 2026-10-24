@@ -18,6 +18,8 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: uv sync
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
       - run: uv run python -m unittest discover -s tests
       - run: uv build
       - run: uvx twine check dist/*

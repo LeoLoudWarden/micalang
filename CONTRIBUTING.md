@@ -13,10 +13,12 @@ English readers: this project's development workflow is currently documented in 
 
 ```bash
 uv sync
+uv run ruff check .
+uv run ruff format --check .
 uv run python -m unittest discover -s tests
 ```
 
-仓库采用 `src/` 布局，直接运行 `python -m unittest` 前需要先安装本项目（`uv sync` 会自动处理）。
+lint 与格式检查由 CI 强制执行（ruff，配置见 `pyproject.toml`）。仓库采用 `src/` 布局，直接运行 `python -m unittest` 前需要先安装本项目（`uv sync` 会自动处理）。
 
 ## 发版
 

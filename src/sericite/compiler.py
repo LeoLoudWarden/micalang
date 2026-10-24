@@ -150,9 +150,7 @@ class _ScopeCollector(ast.NodeVisitor):
 
     def visit_Name(self, node: ast.Name) -> None:
         names = (
-            self.scope.bound
-            if isinstance(node.ctx, ast.Store)
-            else self.scope.loaded
+            self.scope.bound if isinstance(node.ctx, ast.Store) else self.scope.loaded
         )
         names[node.id] = None
 
@@ -195,9 +193,7 @@ class _ScopeCollector(ast.NodeVisitor):
             self.visit(statement)
 
 
-def _analyze_scopes(
-    tree: ast.Module, code: isa.CodeUnit
-) -> dict[int, _Scope]:
+def _analyze_scopes(tree: ast.Module, code: isa.CodeUnit) -> dict[int, _Scope]:
     root = _Scope(tree, code, None)
     _ScopeCollector(root).visit(tree)
     scopes = [root]
@@ -390,9 +386,7 @@ def _validate(tree: ast.Module, filename: str) -> None:
                 parents.get(parent), ast.ClassDef
             )
             if node.id in RESERVED_NAMES and not is_bare_field:
-                is_call_func = (
-                    isinstance(parent, ast.Call) and parent.func is node
-                )
+                is_call_func = isinstance(parent, ast.Call) and parent.func is node
                 if node.id in _CONTRACT_ONLY_NAMES:
                     if not _is_annotation_name(node, parents):
                         _reject(
@@ -401,17 +395,14 @@ def _validate(tree: ast.Module, filename: str) -> None:
                             f"'{node.id}' can only be used as a contract "
                             "in annotations",
                         )
-                elif not is_call_func and not _is_annotation_name(
-                    node, parents
-                ):
+                elif not is_call_func and not _is_annotation_name(node, parents):
                     _reject(
                         node,
                         filename,
                         f"builtin '{node.id}' can only be called directly",
                     )
-        if isinstance(node, ast.Attribute):
-            if node.attr.startswith("__"):
-                _reject(node, filename, "dunder attributes are not available")
+        if isinstance(node, ast.Attribute) and node.attr.startswith("__"):
+            _reject(node, filename, "dunder attributes are not available")
         if isinstance(node, ast.ClassDef):
             if node.name.startswith("__"):
                 _reject(node, filename, "dunder names are not available")
@@ -436,8 +427,7 @@ def _validate(tree: ast.Module, filename: str) -> None:
                 ):
                     field_name = statement.value.id
                 elif isinstance(statement, ast.Assign) or (
-                    isinstance(statement, ast.AnnAssign)
-                    and statement.value is not None
+                    isinstance(statement, ast.AnnAssign) and statement.value is not None
                 ):
                     _reject(
                         statement,
@@ -482,13 +472,16 @@ def _validate(tree: ast.Module, filename: str) -> None:
             _reject(node, filename, "** arguments are not supported")
         if isinstance(node, ast.Dict) and any(key is None for key in node.keys):
             _reject(node, filename, "** unpacking is not supported")
-        if isinstance(node, ast.ExceptHandler):
-            if node.type is not None and not isinstance(node.type, ast.Name):
-                _reject(
-                    node,
-                    filename,
-                    "except clause must name an error kind",
-                )
+        if (
+            isinstance(node, ast.ExceptHandler)
+            and node.type is not None
+            and not isinstance(node.type, ast.Name)
+        ):
+            _reject(
+                node,
+                filename,
+                "except clause must name an error kind",
+            )
         if isinstance(node, ast.FunctionDef):
             if node.name.startswith("__"):
                 _reject(node, filename, "dunder names are not available")
@@ -509,21 +502,17 @@ def _validate(tree: ast.Module, filename: str) -> None:
                 _reject(
                     node,
                     filename,
-                    "only positional parameters with optional defaults "
-                    "are supported",
+                    "only positional parameters with optional defaults are supported",
                 )
-        if isinstance(node, ast.For):
-            if not isinstance(node.target, ast.Name):
-                _reject(node, filename, "for target must be a name")
+        if isinstance(node, ast.For) and not isinstance(node.target, ast.Name):
+            _reject(node, filename, "for target must be a name")
         if isinstance(node, ast.Raise) and node.cause is not None:
             _reject(node, filename, "raise ... from ... is not supported")
         if isinstance(node, ast.Compare) and len(node.ops) != 1:
             _reject(node, filename, "chained comparisons are not supported")
         if isinstance(node, ast.Assign):
             for target in node.targets:
-                if not isinstance(
-                    target, (ast.Name, ast.Subscript, ast.Attribute)
-                ):
+                if not isinstance(target, (ast.Name, ast.Subscript, ast.Attribute)):
                     _reject(node, filename, "unsupported assignment target")
             if len(node.targets) > 1 and any(
                 isinstance(target, (ast.Subscript, ast.Attribute))
@@ -532,8 +521,7 @@ def _validate(tree: ast.Module, filename: str) -> None:
                 _reject(
                     node,
                     filename,
-                    "multiple targets with subscript or attribute "
-                    "are not supported",
+                    "multiple targets with subscript or attribute are not supported",
                 )
 
 
@@ -563,9 +551,7 @@ class _Compiler:
         source: str | None = None
         if isinstance(value, ast.Name):
             source = labels.get(value.id)
-        elif isinstance(value, ast.Call) and isinstance(
-            value.func, ast.Name
-        ):
+        elif isinstance(value, ast.Call) and isinstance(value.func, ast.Name):
             source = labels.get(value.func.id)
         if source is None:
             labels.pop(name, None)
@@ -591,9 +577,7 @@ class _Compiler:
             finally:
                 self._finally_stack.append(body)
 
-    def emit(
-        self, code: isa.CodeUnit, op: str, arg: object, line: int
-    ) -> int:
+    def emit(self, code: isa.CodeUnit, op: str, arg: object, line: int) -> int:
         code.instrs.append(isa.Instr(op=op, arg=arg, line=line))
         return len(code.instrs) - 1
 
@@ -677,9 +661,7 @@ class _Compiler:
             if not self._loops:
                 self._outside_loop(node)
             _, breaks, finally_depth = self._loops[-1]
-            self._compile_finally_exits(
-                code, line, self._finally_stack[finally_depth:]
-            )
+            self._compile_finally_exits(code, line, self._finally_stack[finally_depth:])
             index = self.emit(code, isa.JUMP, None, line)
             breaks.append(index)
             return
@@ -687,9 +669,7 @@ class _Compiler:
             if not self._loops:
                 self._outside_loop(node)
             start, _, finally_depth = self._loops[-1]
-            self._compile_finally_exits(
-                code, line, self._finally_stack[finally_depth:]
-            )
+            self._compile_finally_exits(code, line, self._finally_stack[finally_depth:])
             self.emit(code, isa.JUMP, start, line)
             return
         if isinstance(node, ast.Pass):
@@ -717,9 +697,7 @@ class _Compiler:
                 free_names=analyzed.free_names,
                 param_labels=param_labels,
                 return_label=(
-                    ast.unparse(node.returns)
-                    if node.returns is not None
-                    else None
+                    ast.unparse(node.returns) if node.returns is not None else None
                 ),
             )
             self._function_depth += 1
@@ -748,9 +726,7 @@ class _Compiler:
                 self._tmp_counter += 1
                 decorator_line = getattr(decorator, "lineno", line)
                 self.compile_expression(decorator, code)
-                self.emit(
-                    code, isa.STORE_NAME, decorator_name, decorator_line
-                )
+                self.emit(code, isa.STORE_NAME, decorator_name, decorator_line)
                 decorators.append((decorator_name, decorator_line))
             for default in node.args.defaults:
                 self.compile_expression(default, code)
@@ -774,9 +750,7 @@ class _Compiler:
                 self._tmp_counter += 1
                 self.emit(code, isa.STORE_NAME, target_name, line)
                 for decorator_name, decorator_line in reversed(decorators):
-                    self.emit(
-                        code, isa.LOAD_NAME, decorator_name, decorator_line
-                    )
+                    self.emit(code, isa.LOAD_NAME, decorator_name, decorator_line)
                     self.emit(code, isa.LOAD_NAME, target_name, line)
                     self.emit(code, isa.CALL, 1, decorator_line)
                     self.emit(code, isa.STORE_NAME, target_name, line)
@@ -795,9 +769,7 @@ class _Compiler:
                 self.compile_expression(node.value, code)
             else:
                 self.emit(code, isa.LOAD_CONST, None, line)
-            self._compile_finally_exits(
-                code, line, list(self._finally_stack)
-            )
+            self._compile_finally_exits(code, line, list(self._finally_stack))
             self.emit(code, isa.RETURN, None, line)
             return
         if isinstance(node, ast.Try):
@@ -810,9 +782,7 @@ class _Compiler:
                     continue
                 if isinstance(statement, ast.Expr):
                     names.append(statement.value.id)  # type: ignore[union-attr]
-                    self.emit(
-                        code, isa.LOAD_NAME, "any", statement.lineno
-                    )
+                    self.emit(code, isa.LOAD_NAME, "any", statement.lineno)
                 else:
                     assert isinstance(statement, ast.AnnAssign)
                     names.append(statement.target.id)  # type: ignore[union-attr]
@@ -872,13 +842,9 @@ class _Compiler:
         for handler in node.handlers:
             target = len(code.instrs)
             kinds = (
-                None
-                if handler.type is None
-                else (handler.type.id,)  # type: ignore[union-attr]
+                None if handler.type is None else (handler.type.id,)  # type: ignore[union-attr]
             )
-            handler_entries.append(
-                (body_start, body_end, target, kinds, handler.name)
-            )
+            handler_entries.append((body_start, body_end, target, kinds, handler.name))
             self.compile_body(handler.body, code)
             handler_exits.append(self.emit(code, isa.JUMP, None, line))
         else_label = len(code.instrs)
@@ -971,9 +937,7 @@ class _Compiler:
         if isinstance(node, ast.Compare):
             self.compile_expression(node.left, code)
             self.compile_expression(node.comparators[0], code)
-            self.emit(
-                code, isa.COMPARE_OP, _COMPARE_OPS[type(node.ops[0])], line
-            )
+            self.emit(code, isa.COMPARE_OP, _COMPARE_OPS[type(node.ops[0])], line)
             return
         if isinstance(node, ast.IfExp):
             self.compile_expression(node.test, code)

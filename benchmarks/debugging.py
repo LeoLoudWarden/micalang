@@ -84,9 +84,7 @@ def main() -> None:
         driver(SericiteEngine(limits=LIMITS).create_root(SOURCE))
 
     run_ns, run_count, _ = measure(run, 9)
-    instruction_ns, instruction_count, instruction_steps = measure(
-        step_instructions, 7
-    )
+    instruction_ns, instruction_count, instruction_steps = measure(step_instructions, 7)
     statement_ns, statement_count, statement_steps = measure(step_statements, 7)
     assert run_count == instruction_count == statement_count
     assert instruction_steps == instruction_count

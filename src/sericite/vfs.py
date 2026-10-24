@@ -46,13 +46,9 @@ class VirtualFileSystem:
             raise SericiteError(f"is a directory: {path}", kind="is_directory")
         size = len(text.encode("utf-8"))
         if size > self._max_file_bytes:
-            raise SericiteError(
-                "file size limit exceeded", kind="resource_exhausted"
-            )
+            raise SericiteError("file size limit exceeded", kind="resource_exhausted")
         if normalized not in self._files and len(self._files) >= self._max_files:
-            raise SericiteError(
-                "file count limit exceeded", kind="resource_exhausted"
-            )
+            raise SericiteError("file count limit exceeded", kind="resource_exhausted")
         self._files[normalized] = text
 
     def list_dir(self, path: object) -> list[str]:
@@ -63,7 +59,7 @@ class VirtualFileSystem:
             raise SericiteError(f"no such directory: {path}", kind="file_not_found")
         prefix = normalized.rstrip("/") + "/"
         names = {
-            file[len(prefix):].split("/", 1)[0]
+            file[len(prefix) :].split("/", 1)[0]
             for file in self._files
             if file.startswith(prefix)
         }
@@ -72,7 +68,5 @@ class VirtualFileSystem:
     def path_exists(self, path: object) -> bool:
         normalized = normalize_path(path)
         return (
-            normalized == "/"
-            or normalized in self._files
-            or self._is_dir(normalized)
+            normalized == "/" or normalized in self._files or self._is_dir(normalized)
         )

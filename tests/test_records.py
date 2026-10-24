@@ -20,11 +20,7 @@ def run_error(source):
 class ConstructionTests(unittest.TestCase):
     def test_positional_construction(self):
         out = run(
-            "class Point:\n"
-            "    x: int\n"
-            "    y: int\n"
-            "p = Point(1, 2)\n"
-            "print(p.x, p.y)\n"
+            "class Point:\n    x: int\n    y: int\np = Point(1, 2)\nprint(p.x, p.y)\n"
         )
         self.assertEqual(out, "1 2\n")
 
@@ -80,13 +76,7 @@ class ConstructionTests(unittest.TestCase):
 
 class AttributeAccessTests(unittest.TestCase):
     def test_read_write_field(self):
-        out = run(
-            "class P:\n"
-            "    x: int\n"
-            "p = P(1)\n"
-            "p.x = 42\n"
-            "print(p.x)\n"
-        )
+        out = run("class P:\n    x: int\np = P(1)\np.x = 42\nprint(p.x)\n")
         self.assertEqual(out, "42\n")
 
     def test_store_contract_checked(self):
@@ -140,31 +130,15 @@ class AttributeAccessTests(unittest.TestCase):
 
 class EqualityTests(unittest.TestCase):
     def test_structural_equality(self):
-        out = run(
-            "class P:\n"
-            "    x: int\n"
-            "a = P(1)\n"
-            "b = P(1)\n"
-            "print(a == b)\n"
-        )
+        out = run("class P:\n    x: int\na = P(1)\nb = P(1)\nprint(a == b)\n")
         self.assertEqual(out, "True\n")
 
     def test_same_shape_different_schema_objects_are_equal(self):
-        out = run(
-            "class P:\n"
-            "    x: int\n"
-            "class Q:\n"
-            "    x: int\n"
-            "print(P(1) == Q(1))\n"
-        )
+        out = run("class P:\n    x: int\nclass Q:\n    x: int\nprint(P(1) == Q(1))\n")
         self.assertEqual(out, "True\n")
 
     def test_record_never_equals_dict(self):
-        out = run(
-            "class P:\n"
-            "    x: int\n"
-            "print(P(1) == {'x': 1})\n"
-        )
+        out = run("class P:\n    x: int\nprint(P(1) == {'x': 1})\n")
         self.assertEqual(out, "False\n")
 
     def test_schema_structural_equality(self):
@@ -208,12 +182,7 @@ class WrapUnwrapTests(unittest.TestCase):
 
     def test_unwrap_is_a_copy(self):
         out = run(
-            "class P:\n"
-            "    x: int\n"
-            "p = P(1)\n"
-            "d = unwrap(p)\n"
-            "d['x'] = 99\n"
-            "print(p.x)\n"
+            "class P:\n    x: int\np = P(1)\nd = unwrap(p)\nd['x'] = 99\nprint(p.x)\n"
         )
         self.assertEqual(out, "1\n")
 
@@ -221,9 +190,7 @@ class WrapUnwrapTests(unittest.TestCase):
         exc = run_error("class P:\n    x: int\n    y: int\np = wrap(P, {'x': 1})\n")
         self.assertEqual(exc.kind, "contract_error")
         self.assertIn("missing", exc.message)
-        exc = run_error(
-            "class P:\n    x: int\np = wrap(P, {'x': 1, 'z': 2})\n"
-        )
+        exc = run_error("class P:\n    x: int\np = wrap(P, {'x': 1, 'z': 2})\n")
         self.assertEqual(exc.kind, "contract_error")
         self.assertIn("unexpected", exc.message)
 
@@ -252,11 +219,7 @@ class AnnotationTests(unittest.TestCase):
     def test_param_contract_rejects_dict(self):
         # quarantine rule: a well-shaped dict still cannot stand in for a record
         exc = run_error(
-            "class P:\n"
-            "    x: int\n"
-            "def f(p: P):\n"
-            "    return p.x\n"
-            "f({'x': 1})\n"
+            "class P:\n    x: int\ndef f(p: P):\n    return p.x\nf({'x': 1})\n"
         )
         self.assertEqual(exc.kind, "contract_error")
         self.assertIn("argument p of f", exc.message)
@@ -309,18 +272,9 @@ class AnnotationTests(unittest.TestCase):
         self.assertIn("annotated assignment", exc.message)
 
     def test_annotated_assignment_with_schema(self):
-        out = run(
-            "class P:\n"
-            "    x: int\n"
-            "p: P = P(1)\n"
-            "print(p.x)\n"
-        )
+        out = run("class P:\n    x: int\np: P = P(1)\nprint(p.x)\n")
         self.assertEqual(out, "1\n")
-        exc = run_error(
-            "class P:\n"
-            "    x: int\n"
-            "p: P = {'x': 1}\n"
-        )
+        exc = run_error("class P:\n    x: int\np: P = {'x': 1}\n")
         self.assertEqual(exc.kind, "contract_error")
 
     def test_annotation_must_be_a_contract(self):
@@ -390,11 +344,7 @@ class LabelTests(unittest.TestCase):
 
     def test_param_label_in_body_error(self):
         exc = run_error(
-            "class Point:\n"
-            "    x: int\n"
-            "def f(p: Point):\n"
-            "    return p.y\n"
-            "f(Point(1))\n"
+            "class Point:\n    x: int\ndef f(p: Point):\n    return p.y\nf(Point(1))\n"
         )
         self.assertIn("record Point {x: int}", exc.message)
 
@@ -435,10 +385,10 @@ class ClosureAndVMTests(unittest.TestCase):
             "def get_x(p: P) -> int:\n"
             "    return p.x\n"
             "sub = VM(\n"
-            "    \"try:\\n\"\n"
+            '    "try:\\n"\n'
             "    \"    f({'x': 1})\\n\"\n"
-            "    \"except contract_error as e:\\n\"\n"
-            "    \"    print(e)\\n\",\n"
+            '    "except contract_error as e:\\n"\n'
+            '    "    print(e)\\n",\n'
             "    functions={'f': get_x})\n"
             "print(sub.run())\n"
         )
@@ -453,10 +403,10 @@ class ClosureAndVMTests(unittest.TestCase):
             "def bad() -> int:\n"
             "    return 'oops'\n"
             "sub = VM(\n"
-            "    \"try:\\n\"\n"
-            "    \"    g()\\n\"\n"
-            "    \"except contract_error as e:\\n\"\n"
-            "    \"    print(e)\\n\",\n"
+            '    "try:\\n"\n'
+            '    "    g()\\n"\n'
+            '    "except contract_error as e:\\n"\n'
+            '    "    print(e)\\n",\n'
             "    functions={'g': bad})\n"
             "print(sub.run())\n"
         )
@@ -469,10 +419,10 @@ class ClosureAndVMTests(unittest.TestCase):
             "def two_args(a, b):\n"
             "    return a\n"
             "sub = VM(\n"
-            "    \"try:\\n\"\n"
-            "    \"    h(1)\\n\"\n"
-            "    \"except arity_error as e:\\n\"\n"
-            "    \"    print(e)\\n\",\n"
+            '    "try:\\n"\n'
+            '    "    h(1)\\n"\n'
+            '    "except arity_error as e:\\n"\n'
+            '    "    print(e)\\n",\n'
             "    functions={'h': two_args})\n"
             "print(sub.run())\n"
         )
@@ -488,14 +438,14 @@ class ClosureAndVMTests(unittest.TestCase):
             "    return r.nosuch\n"
             "def leak(r):\n"
             "    return helper(r)\n"
-            "sub = VM(\"\"\"\n"
+            'sub = VM("""\n'
             "class C:\n"
             "    password: str\n"
             "try:\n"
             "    leak(C('x'))\n"
             "except attribute_error as e:\n"
             "    print(e)\n"
-            "\"\"\", functions={'leak': leak})\n"
+            '""", functions={\'leak\': leak})\n'
             "print(sub.run())\n"
         )
         out = run(source)
@@ -511,14 +461,14 @@ class ClosureAndVMTests(unittest.TestCase):
             "    return 1\n"
             "def leak(r):\n"
             "    return helper(r)\n"
-            "sub = VM(\"\"\"\n"
+            'sub = VM("""\n'
             "class D:\n"
             "    other: int\n"
             "try:\n"
             "    leak(D(1))\n"
             "except contract_error as e:\n"
             "    print(e)\n"
-            "\"\"\", functions={'leak': leak})\n"
+            '""", functions={\'leak\': leak})\n'
             "print(sub.run())\n"
         )
         out = run(source)
@@ -535,12 +485,12 @@ class ClosureAndVMTests(unittest.TestCase):
             "    return 5\n"
             "def leak():\n"
             "    return bad_ret()\n"
-            "sub = VM(\"\"\"\n"
+            'sub = VM("""\n'
             "try:\n"
             "    leak()\n"
             "except contract_error as e:\n"
             "    print(e)\n"
-            "\"\"\", functions={'leak': leak})\n"
+            '""", functions={\'leak\': leak})\n'
             "print(sub.run())\n"
         )
         out = run(source)
@@ -555,12 +505,12 @@ class ClosureAndVMTests(unittest.TestCase):
             "    return a\n"
             "def leak():\n"
             "    return helper(1)\n"
-            "sub = VM(\"\"\"\n"
+            'sub = VM("""\n'
             "try:\n"
             "    leak()\n"
             "except arity_error as e:\n"
             "    print(e)\n"
-            "\"\"\", functions={'leak': leak})\n"
+            '""", functions={\'leak\': leak})\n'
             "print(sub.run())\n"
         )
         out = run(source)
@@ -579,10 +529,7 @@ class ClosureAndVMTests(unittest.TestCase):
 
     def test_annotation_smuggling_rejected(self):
         exc = run_error(
-            "def stash(v):\n"
-            "    return 5\n"
-            "def f(x: stash(print)):\n"
-            "    return x\n"
+            "def stash(v):\n    return 5\ndef f(x: stash(print)):\n    return x\n"
         )
         self.assertEqual(exc.kind, "validation_error")
 
@@ -616,13 +563,7 @@ class ClosureAndVMTests(unittest.TestCase):
         self.assertEqual(exc.kind, "validation_error")
 
     def test_field_named_after_builtin(self):
-        out = run(
-            "class C:\n"
-            "    int\n"
-            "    print\n"
-            "c = C(1, 2)\n"
-            "print(c.int, c.print)\n"
-        )
+        out = run("class C:\n    int\n    print\nc = C(1, 2)\nprint(c.int, c.print)\n")
         self.assertEqual(out, "1 2\n")
 
     def test_record_comparison_is_charged(self):
@@ -656,11 +597,7 @@ class ClosureAndVMTests(unittest.TestCase):
 
     def test_contains_no_false_positive_on_shared_substructure(self):
         # 0.4.1 once misjudged pairs already compared as False to be True
-        out = run(
-            "a = [1, 2]\n"
-            "b = [a, a]\n"
-            "print([99] in b, [1, 2] in b)\n"
-        )
+        out = run("a = [1, 2]\nb = [a, a]\nprint([99] in b, [1, 2] in b)\n")
         self.assertEqual(out, "False True\n")
 
     def test_string_membership_is_charged(self):
@@ -691,9 +628,7 @@ class ClosureAndVMTests(unittest.TestCase):
             f"class Big:\n{fields}\n"
             "class Holder:\n"
             "    payload: Big\n"
-            "big = wrap(Big, {"
-            + ", ".join(f"'f{i}': 0" for i in range(500))
-            + "})\n"
+            "big = wrap(Big, {" + ", ".join(f"'f{i}': 0" for i in range(500)) + "})\n"
             "i = 0\n"
             "while i < 5000:\n"
             "    h = Holder(big)\n"
@@ -715,12 +650,12 @@ class ClosureAndVMTests(unittest.TestCase):
             "    return y\n"
             "def leak():\n"
             "    return helper()\n"
-            "sub = VM(\"\"\"\n"
+            'sub = VM("""\n'
             "try:\n"
             "    leak()\n"
             "except contract_error as e:\n"
             "    print(e)\n"
-            "\"\"\", functions={'leak': leak})\n"
+            '""", functions={\'leak\': leak})\n'
             "print(sub.run())\n"
         )
         out = run(source)
@@ -729,9 +664,7 @@ class ClosureAndVMTests(unittest.TestCase):
 
     def test_snapshot_hides_native_function_class(self):
         engine = SericiteEngine()
-        vm = engine.create_root(
-            'sub = VM("x = 1")\nf = sub.run\nprint(1)\n'
-        )
+        vm = engine.create_root('sub = VM("x = 1")\nf = sub.run\nprint(1)\n')
         vm.step()
         vm.step()
         snapshot = vm.step()
@@ -756,11 +689,11 @@ class HomeVmTests(unittest.TestCase):
             "saved = [None]\n"
             "def stash(fn):\n"
             "    saved[0] = fn\n"
-            "sub = VM(\"\"\"\n"
+            'sub = VM("""\n'
             "def payload():\n"
             "    return read_file('/secret.txt')\n"
             "stash(payload)\n"
-            "\"\"\", functions={'stash': stash})\n"
+            '""", functions={\'stash\': stash})\n'
             "sub.run()\n"
             "try:\n"
             "    print(saved[0]())\n"
@@ -783,12 +716,12 @@ class HomeVmTests(unittest.TestCase):
         source = (
             "def f():\n"
             "    return 1\n"
-            "sub = VM(\"\"\"\n"
+            'sub = VM("""\n'
             "try:\n"
             "    len(g)\n"
             "except type_error as e:\n"
             "    print(e)\n"
-            "\"\"\", functions={'g': f})\n"
+            '""", functions={\'g\': f})\n'
             "print(sub.run())\n"
         )
         out = run(source)
@@ -798,9 +731,7 @@ class HomeVmTests(unittest.TestCase):
     def test_spawned_vm_capped_by_caller_limits(self):
         # a grandchild VM created via a granted function has its quota also capped by the caller:
         # the grandchild can run at most within the caller's budget (resource_exhausted is uncatchable, terminating the chain)
-        child_src = (
-            '\nout = spawn("i = 0\\nwhile i < 100000:\\n    i = i + 1")\n'
-        )
+        child_src = '\nout = spawn("i = 0\\nwhile i < 100000:\\n    i = i + 1")\n'
         source = (
             "def spawn(code):\n"
             "    v = VM(code)\n"
@@ -844,8 +775,7 @@ class HomeVmTests(unittest.TestCase):
             raise AssertionError("expected resource_exhausted")
         # the same code completes normally with a generous quota
         self.assertEqual(
-            run(source.replace("max_total_bytes=2000000",
-                               "max_total_bytes=50000000")),
+            run(source.replace("max_total_bytes=2000000", "max_total_bytes=50000000")),
             "",
         )
 
@@ -907,7 +837,7 @@ class HomeVmTests(unittest.TestCase):
             "    return P(1)\n"
             "def bump(p):\n"
             "    p.x = p.x + 1\n"
-            "sub = VM(\"r = make()\\nbump(r)\\nprint(r.x)\", "
+            'sub = VM("r = make()\\nbump(r)\\nprint(r.x)", '
             "functions={'make': make, 'bump': bump})\n"
             "print(sub.run())\n"
         )
@@ -918,11 +848,7 @@ class HomeVmTests(unittest.TestCase):
         def identity(value):
             return value
 
-        source = (
-            "class P:\n"
-            "    x: int\n"
-            "print(host(P(1)))\n"
-        )
+        source = "class P:\n    x: int\nprint(host(P(1)))\n"
         try:
             run(source, functions={"host": identity})
         except SericiteError as exc:
@@ -990,22 +916,11 @@ class ValidationTests(unittest.TestCase):
 
 class ReprTests(unittest.TestCase):
     def test_record_str(self):
-        out = run(
-            "class P:\n"
-            "    x: int\n"
-            "    name\n"
-            "print(P(1, 'a'))\n"
-        )
+        out = run("class P:\n    x: int\n    name\nprint(P(1, 'a'))\n")
         self.assertEqual(out, "record(x=1, name='a')\n")
 
     def test_record_cycle_safe(self):
-        out = run(
-            "class Node:\n"
-            "    next\n"
-            "n = Node(None)\n"
-            "n.next = n\n"
-            "print(n)\n"
-        )
+        out = run("class Node:\n    next\nn = Node(None)\nn.next = n\nprint(n)\n")
         self.assertEqual(out, "record(next=record(...))\n")
 
 
