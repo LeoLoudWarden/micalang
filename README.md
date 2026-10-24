@@ -93,12 +93,12 @@ def f():
     # p2.z → record PointB {x: int, y: int} has no field 'z'
     return p2
 
-p_outter1 = f()
-# p_outter1.z → record {x: int, y: int} has no field 'z'
+p_outer1 = f()
+# p_outer1.z → record {x: int, y: int} has no field 'z'
 #   anonymous: labels don't travel with values; erased beyond their scope
 
-p_outter2: PointA = f()
-# p_outter2.z → record PointA {x: int, y: int} has no field 'z'
+p_outer2: PointA = f()
+# p_outer2.z → record PointA {x: int, y: int} has no field 'z'
 #   the receiver names it locally, and errors become readable
 ```
 

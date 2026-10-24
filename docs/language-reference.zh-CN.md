@@ -167,6 +167,7 @@ record 的语义边界：
 
 - **形状固定**：字段不可增删——读写不存在的字段报 `attribute_error`；字段值可改，但必须满足字段契约（违反报 `contract_error`）。
 - **结构相等**：两处分别定义的同构 schema 彼此相等；record 相等要求 schema 结构相等且载荷相等；record 与 dict 永不相等——即使形状一样，dict 也没有"检疫章"。
+- **相等忽略声明顺序，构造依赖声明顺序**：schema 相等按字段集合比较，`x`、`y` 谁先谁后不影响相等；但位置构造按各自 schema 的声明顺序绑定参数。字段相同而顺序颠倒的两个 schema 彼此相等，对它们做同样的位置构造却得到载荷不同的 record。跨定义位置传参时建议用关键字构造，避开顺序陷阱。
 - **扒皮与套皮**：`unwrap(p)` 把 record 扒成普通 dict（浅拷贝）；`wrap(Point, d)` 把键集与 schema 严格一致的 dict 套上契约变成 record（缺/多键报 `contract_error` 并列明）。
 - record 不可下标、不可迭代、不可做 dict 键，恒为真值。
 

@@ -167,6 +167,7 @@ Record semantics:
 
 - **Fixed shape**: fields can never be added or removed — reading or writing an unknown field raises `attribute_error`; field values are mutable but must satisfy their contract (violations raise `contract_error`).
 - **Structural equality**: two separately written identical class bodies produce equal schemas; records are equal when their schemas are structurally equal and their payloads are equal; a record never equals a dict — even with the same shape, a dict carries no contract.
+- **Equality ignores declaration order; construction depends on it**: schema equality compares the field set — the order of `x` and `y` makes no difference; positional construction, however, binds arguments in each schema's own declaration order. Two schemas with the same fields in reversed order are equal, yet the same positional call produces records with different payloads. Prefer keyword construction when passing arguments positionally across separately defined schemas.
 - **Wrap/unwrap**: `unwrap(p)` peels a record into a plain dict (a shallow copy); `wrap(Point, d)` wraps a dict whose keys exactly match the schema into a record (missing/extra keys raise `contract_error` naming them).
 - Records are not indexable, not iterable, not usable as dict keys, and always truthy.
 
