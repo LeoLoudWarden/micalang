@@ -69,6 +69,41 @@ A VM is a cheap, self-contained workspace:
 
 Cheap is measured, not just claimed: in the current Python prototype, creating a child VM from inside a script costs ~0.05 ms — the same order as spawning a thread, one to two orders of magnitude below a process. A representative loop averages ~0.65 µs per instruction, or ~1.86 µs per instruction with instruction-level stepping (environment and reproduction scripts: [benchmarks/](https://github.com/LeoLoudWarden/sericite/tree/main/benchmarks)).
 
+## Records: type names are compile-time error labels
+
+Since 0.4, Sericite has user-defined objects with members. Its view of types follows the same discipline as VM isolation: **structure travels across layers; names stay local to a layer.**
+
+- A schema (the structural contract defined by `class`) is anonymous: two isomorphic schemas defined separately are equal — there are no nominal types;
+- A record carries only data and contracts. A type name is a compile-time, scope-local transparent alias (like an Elm `type alias`) used solely in error text — it plays no role in equality or contract checks and is erased beyond its scope;
+- Naming is a local act of the receiver: the same value may carry different names in different scopes, or none at all.
+
+```python
+class PointA:
+    x: int
+    y: int
+
+def f():
+    class PointB:                 # same shape as PointA, but an independent definition
+        x: int
+        y: int
+    p1: PointA = PointA(1, 2)     # the annotation writes a name in this scope
+    p2 = PointB(1, 2)
+    print(p1 == p2)               # True: structural equality, names don't count
+    # p1.z → record PointA {x: int, y: int} has no field 'z'
+    # p2.z → record PointB {x: int, y: int} has no field 'z'
+    return p2
+
+p_outter1 = f()
+# p_outter1.z → record {x: int, y: int} has no field 'z'
+#   anonymous: labels don't travel with values; erased beyond their scope
+
+p_outter2: PointA = f()
+# p_outter2.z → record PointA {x: int, y: int} has no field 'z'
+#   the receiver names it locally, and errors become readable
+```
+
+Rationale: [design notes §3.4](https://github.com/LeoLoudWarden/sericite/blob/main/docs/design.md); full semantics: [language reference §7](https://github.com/LeoLoudWarden/sericite/blob/main/docs/language-reference.md).
+
 ## Documentation
 
 | Document | Language | Contents |

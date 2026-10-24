@@ -69,6 +69,41 @@ print(vm.run(), end="")    # 42
 
 廉价是实测过的：当前 Python 原型中，脚本内创建一台子 VM 约 0.05 ms，与创建一个线程同数量级，比进程便宜一到两个数量级。代表性循环连续执行平均约 0.65 µs/指令，逐指令调试约 1.86 µs/指令（实测环境与复现脚本见 [benchmarks/](https://github.com/LeoLoudWarden/sericite/tree/main/benchmarks)）。
 
+## record：类型名只是编译期的报错标签
+
+0.4 起，sericite 有了自定义含成员的对象。它的类型观与 VM 的隔离观是同一条戒律：**结构跨层，名字层本地。**
+
+- schema（`class` 定义的结构契约）是匿名的：两处分别定义的同形 schema 彼此相等，不存在名义类型；
+- record 只携带数据和契约。类型名是编译期、作用域本地的透明别名（同 Elm `type alias`），只用于报错文本——不参与相等、不参与契约判断，出作用域即擦除；
+- 命名是接收方的本地行为：一个值在不同作用域可以有不同的名字，也可以没有名字。
+
+```python
+class PointA:
+    x: int
+    y: int
+
+def f():
+    class PointB:                 # 与 PointA 同形，但是两次独立的定义
+        x: int
+        y: int
+    p1: PointA = PointA(1, 2)     # 注解在本作用域写下名字
+    p2 = PointB(1, 2)
+    print(p1 == p2)               # True：结构相等，名字不参与
+    # p1.z → record PointA {x: int, y: int} has no field 'z'
+    # p2.z → record PointB {x: int, y: int} has no field 'z'
+    return p2
+
+p_outter1 = f()
+# p_outter1.z → record {x: int, y: int} has no field 'z'
+#   匿名：标签不随值旅行，出作用域即擦除
+
+p_outter2: PointA = f()
+# p_outter2.z → record PointA {x: int, y: int} has no field 'z'
+#   接收方在自己的作用域重新命名，报错即可读
+```
+
+设计论证见[设计说明 §3.4](https://github.com/LeoLoudWarden/sericite/blob/main/docs/design.zh-CN.md)，完整语义见[语言参考 §7](https://github.com/LeoLoudWarden/sericite/blob/main/docs/language-reference.zh-CN.md)。
+
 ## 文档
 
 | 文档 | 内容 |
