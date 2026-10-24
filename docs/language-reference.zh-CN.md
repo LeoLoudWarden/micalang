@@ -19,6 +19,8 @@ x = input()               # 读入一行（字符串）
 7 // 2       # 3
 7 % 3        # 1
 "ab" + "cd"  # 字符串拼接（只有 +，没有 * 重复、没有 f-string、没有切片）
+"""line1
+line2""" # 多行
 [1, 2] + [3] # 列表拼接
 not x        # 逻辑非；and / or 短路求值
 1 < 2        # 比较：== != < <= > >=（不支持链式 a < b < c）
@@ -226,27 +228,178 @@ sub.run()                        # 输出 42
 ## 10. 一个完整例子
 
 ```python
-def count_words(path):
-    try:
-        text = read_file(path)
-    except file_not_found:
-        return {"ok": False}
-    count = 0
-    word = ""
-    for ch in text:
-        if ch == " " or ch == "\n":
-            if word != "":
-                count = count + 1
-                word = ""
-        else:
-            word = word + ch
-    if word != "":
-        count = count + 1
-    return {"ok": True, "count": count}
+# 库存小账本：一条程序走一遍 Sericite 的主要特性。
+# 每一节对应语言参考的一个章节，注释里标了出处。
 
-r = count_words("/notes.txt")
-if r["ok"]:
-    print("words:", r["count"])
+# ---------- record：结构契约（第 7 节） ----------
+class Item:
+    sku: str
+    name: str
+    qty: int
+    price: float
+
+class SkuRef:
+    sku: str
+
+# 构造：位置实参按声明顺序，关键字实参任意顺序
+apple = Item("A-1", "apple", 3, 0.5)
+milk = Item(sku="M-2", name="milk", qty=10, price=1.25)
+
+# 点号读写成员，写也受契约约束
+milk.qty = milk.qty - 1
+print("milk left:", milk.qty)        # 9
+
+# 结构相等：schema 按字段集合比较，与声明顺序无关
+class ItemRev:
+    price: float
+    qty: int
+    name: str
+    sku: str
+print("same schema:", Item == ItemRev)   # True
+
+# 注解是运行期契约（第 7 节）：宽度检查，多余字段放行
+def describe(ref: SkuRef) -> str:
+    return "sku=" + ref.sku
+print(describe(apple))               # sku=A-1（Item 是 SkuRef 的宽实现）
+
+# 扒皮与套皮
+raw = unwrap(apple)
+print("unwrapped:", raw)             # {'sku': 'A-1', 'name': 'apple', 'qty': 3, 'price': 0.5}
+clone = wrap(Item, raw)
+print("round trip:", clone == apple)  # True
+
+# ---------- 函数：默认参数、关键字实参、递归（第 4 节） ----------
+def restock(qty: int, step: int = 5) -> int:
+    return qty + step
+
+def total_value(items: list) -> float:
+    total = 0.0
+    for it in items:
+        total = total + it.qty * it.price
+    return total
+
+def factorial(n):
+    if n <= 1:
+        return 1
+    return n * factorial(n - 1)
+
+print("restock:", restock(3), restock(3, step=20))   # 8  23
+
+# ---------- 装饰器（第 4 节）：等价于 double = logged(double) ----------
+def logged(func):
+    def wrapper(x):
+        print("  [log] in:", x)
+        result = func(x)
+        print("  [log] out:", result)
+        return result
+    return wrapper
+
+@logged
+def double(x):
+    return x * 2
+
+print("double:", double(21))         # 42，前后各一行日志
+
+# ---------- 闭包（第 4 节）：按引用捕获，读到最新绑定 ----------
+def make_reader():
+    x = 1
+    def read():
+        return x
+    x = 2
+    return read
+print("closure:", make_reader()())   # 2，不是 1
+
+# ---------- 控制流（第 3 节） ----------
+inv = [apple, milk, Item("B-3", "bread", 0, 2.0)]
+
+# for/else：没有 break 就执行 else
+sold_out = False
+for it in inv:
+    if it.qty == 0:
+        sold_out = True
+        break
 else:
-    print("file missing")
+    print("no sold-out items")
+if sold_out:
+    print("some item is sold out")
+
+# while/else：没被 break 就执行 else；continue / pass 也合法
+n = 6
+while n > 0:
+    n = n - 1
+    if n % 2 == 0:
+        continue
+    if n == 1:
+        break
+else:
+    print("loop exhausted")
+print("stopped at", n)               # 1
+
+flag = False
+if flag:
+    pass                             # 空分支占位
+else:
+    print("flag off")
+
+# ---------- 异常（第 5 节） ----------
+def parse_qty(text):
+    try:
+        return int(text)
+    except conversion_error as e:
+        print("  bad number:", e)
+        return 0
+    finally:
+        print("  parse done")
+
+print("parse:", parse_qty("12"), parse_qty("oops"))   # 12  0
+
+# 按类型过滤 + raise 字符串（raise_error，向上传播）
+def load_config():
+    try:
+        text = read_file("/config.txt")
+    except file_not_found:
+        raise "config missing"       # raise_error，可被捕获
+    return text
+
+try:
+    load_config()
+except raise_error as e:
+    print("config:", e)
+
+# 自定义 raise + 兜底 except
+try:
+    raise "demo error"
+except zero_division:
+    print("won't happen")
+except:
+    print("caught by bare except")
+
+# ---------- 文件与子 VM（第 6、8 节） ----------
+write_file("/report.txt", "inventory ok")
+print("report exists:", path_exists("/report.txt"))   # True
+print("files:", list_dir("/"))                        # ['report.txt']
+
+# 子 VM 是隔离工作区：喂输入、读它的输出；资源配额只能比当前更严
+checker_code = """
+a = int(input())
+b = int(input())
+print("sum from sub:", a + b)
+"""
+checker = VM(checker_code, max_instructions=1000)
+sub_out = checker.run(["7", "8"])
+print("sub vm says: " + sub_out)     # sum from sub: 15
+
+# 授予宿主函数给它用（按引用保留定义方环境）
+def times_ten(x):
+    return x * 10
+worker = VM("""
+n = int(input())
+print(times_ten(n))
+""", functions={"times_ten": times_ten})
+print("worker says: " + worker.run(["6"]))   # 60
+
+# 收尾：汇总并打印最终结果
+grand = total_value(inv)
+print("grand total:", grand)
+print("factorial(5):", factorial(5))
 ```

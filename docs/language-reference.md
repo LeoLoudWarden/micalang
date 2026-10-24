@@ -19,6 +19,8 @@ Built-in types: `int`, `float`, `str`, `bool`, `None`, `list`, `dict`, plus user
 7 // 2       # 3
 7 % 3        # 1
 "ab" + "cd"  # string concatenation (only +; no * repetition, no f-strings, no slicing)
+"""line1
+line2""" # multi-line
 [1, 2] + [3] # list concatenation
 not x        # logical not; and / or short-circuit
 1 < 2        # comparison: == != < <= > >= (no chaining like a < b < c)
@@ -226,27 +228,178 @@ A granted sericite function retains its definition-side module variables, closur
 ## 10. A complete example
 
 ```python
-def count_words(path):
-    try:
-        text = read_file(path)
-    except file_not_found:
-        return {"ok": False}
-    count = 0
-    word = ""
-    for ch in text:
-        if ch == " " or ch == "\n":
-            if word != "":
-                count = count + 1
-                word = ""
-        else:
-            word = word + ch
-    if word != "":
-        count = count + 1
-    return {"ok": True, "count": count}
+# A tiny inventory ledger: one program that walks through Sericite's main features.
+# Each section matches a chapter of this reference, noted in the comments.
 
-r = count_words("/notes.txt")
-if r["ok"]:
-    print("words:", r["count"])
+# ---------- records: structural contracts (section 7) ----------
+class Item:
+    sku: str
+    name: str
+    qty: int
+    price: float
+
+class SkuRef:
+    sku: str
+
+# Construction: positional args follow declaration order; keyword args work in any order
+apple = Item("A-1", "apple", 3, 0.5)
+milk = Item(sku="M-2", name="milk", qty=10, price=1.25)
+
+# Dot access reads and writes members; writes are still checked against the contract
+milk.qty = milk.qty - 1
+print("milk left:", milk.qty)        # 9
+
+# Structural equality: schemas compare by field set, independent of declaration order
+class ItemRev:
+    price: float
+    qty: int
+    name: str
+    sku: str
+print("same schema:", Item == ItemRev)   # True
+
+# Annotations are runtime contracts (section 7): width-based check, extra fields allowed
+def describe(ref: SkuRef) -> str:
+    return "sku=" + ref.sku
+print(describe(apple))               # sku=A-1 (Item passes as SkuRef because the check is width-based)
+
+# Wrap and unwrap
+raw = unwrap(apple)
+print("unwrapped:", raw)             # {'sku': 'A-1', 'name': 'apple', 'qty': 3, 'price': 0.5}
+clone = wrap(Item, raw)
+print("round trip:", clone == apple)  # True
+
+# ---------- functions: default args, keyword args, recursion (section 4) ----------
+def restock(qty: int, step: int = 5) -> int:
+    return qty + step
+
+def total_value(items: list) -> float:
+    total = 0.0
+    for it in items:
+        total = total + it.qty * it.price
+    return total
+
+def factorial(n):
+    if n <= 1:
+        return 1
+    return n * factorial(n - 1)
+
+print("restock:", restock(3), restock(3, step=20))   # 8  23
+
+# ---------- decorators (section 4): equivalent to double = logged(double) ----------
+def logged(func):
+    def wrapper(x):
+        print("  [log] in:", x)
+        result = func(x)
+        print("  [log] out:", result)
+        return result
+    return wrapper
+
+@logged
+def double(x):
+    return x * 2
+
+print("double:", double(21))         # 42, with a log line before and after
+
+# ---------- closures (section 4): captured by reference, reads the latest binding ----------
+def make_reader():
+    x = 1
+    def read():
+        return x
+    x = 2
+    return read
+print("closure:", make_reader()())   # 2, not 1
+
+# ---------- control flow (section 3) ----------
+inv = [apple, milk, Item("B-3", "bread", 0, 2.0)]
+
+# for/else: the else runs only when there was no break
+sold_out = False
+for it in inv:
+    if it.qty == 0:
+        sold_out = True
+        break
 else:
-    print("file missing")
+    print("no sold-out items")
+if sold_out:
+    print("some item is sold out")
+
+# while/else: the else runs only when there was no break; continue / pass are legal too
+n = 6
+while n > 0:
+    n = n - 1
+    if n % 2 == 0:
+        continue
+    if n == 1:
+        break
+else:
+    print("loop exhausted")
+print("stopped at", n)               # 1
+
+flag = False
+if flag:
+    pass                             # empty branch placeholder
+else:
+    print("flag off")
+
+# ---------- exceptions (section 5) ----------
+def parse_qty(text):
+    try:
+        return int(text)
+    except conversion_error as e:
+        print("  bad number:", e)
+        return 0
+    finally:
+        print("  parse done")
+
+print("parse:", parse_qty("12"), parse_qty("oops"))   # 12  0
+
+# filter by kind + raise a string (a raise_error), which propagates up
+def load_config():
+    try:
+        text = read_file("/config.txt")
+    except file_not_found:
+        raise "config missing"       # raise_error, catchable
+    return text
+
+try:
+    load_config()
+except raise_error as e:
+    print("config:", e)
+
+# custom raise + bare except as the catch-all
+try:
+    raise "demo error"
+except zero_division:
+    print("won't happen")
+except:
+    print("caught by bare except")
+
+# ---------- files and sub-VMs (sections 6 and 8) ----------
+write_file("/report.txt", "inventory ok")
+print("report exists:", path_exists("/report.txt"))   # True
+print("files:", list_dir("/"))                        # ['report.txt']
+
+# A sub-VM is an isolated workspace: feed it input, read its output; quotas can only tighten
+checker_code = """
+a = int(input())
+b = int(input())
+print("sum from sub:", a + b)
+"""
+checker = VM(checker_code, max_instructions=1000)
+sub_out = checker.run(["7", "8"])
+print("sub vm says: " + sub_out)     # sum from sub: 15
+
+# Grant it a host function (kept by reference to its defining environment)
+def times_ten(x):
+    return x * 10
+worker = VM("""
+n = int(input())
+print(times_ten(n))
+""", functions={"times_ten": times_ten})
+print("worker says: " + worker.run(["6"]))   # 60
+
+# Wrap up: aggregate and print the final results
+grand = total_value(inv)
+print("grand total:", grand)
+print("factorial(5):", factorial(5))
 ```
