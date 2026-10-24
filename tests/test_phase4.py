@@ -208,7 +208,7 @@ class HostFunctionTests(unittest.TestCase):
             '    print("caught: " + e)\n'
         )
         output = run(source, functions={"boom": boom})
-        # 不含宿主异常消息（防宿主内部信息泄漏），只含异常类型名
+        # no host exception message (prevents leaking host internals), only the exception type name
         self.assertIn("ValueError", output)
         self.assertIn("boom", output)
         self.assertNotIn("kaput", output)

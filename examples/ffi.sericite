@@ -1,4 +1,4 @@
-# 父 VM 把函数授予子 VM：能力沿创建链显式传递
+# A parent VM grants functions to a child VM: capabilities travel explicitly along the creation chain
 
 base_url = "https://api.example.com"
 
@@ -6,7 +6,7 @@ def endpoint(path):
     return base_url + "/" + path
 
 def fake_http_get(url):
-    # 真实场景里这是宿主注入的网络函数；这里用 sericite 函数模拟结构化返回
+    # In a real scenario this is a host-injected network function; here a sericite function simulates a structured response
     return {"status": 200, "url": url, "body": "payload of " + url}
 
 child_source = """

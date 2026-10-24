@@ -71,7 +71,7 @@ class SecurityQuotaTests(unittest.TestCase):
         self.assertEqual(snapshot["locals"]["l"], ["[...]"])
 
     def test_cyclic_foreign_equality_contained(self):
-        # 环状结构比较经 (id, id) 记忆化收敛为余归纳相等，不再耗尽递归
+        # cyclic-structure comparison converges via (id, id) memoization to a coinductive equality, no longer exhausting recursion
         source = "a = [None]\na[0] = a\nb = [None]\nb[0] = b\nprint(a == b)\n"
         self.assertEqual(run(source), "True\n")
 
@@ -486,7 +486,7 @@ class TernaryTests(unittest.TestCase):
 
 
 class ExternalAuditTests(unittest.TestCase):
-    """外部安全审查采纳项的回归测试。"""
+    """Regression tests for items adopted from the external security audit."""
 
     def test_container_membership_charges_work(self):
         source = (

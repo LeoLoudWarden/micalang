@@ -1,7 +1,5 @@
 """Benchmark: how cheap is creating a Sericite VM?
 
-基准:创建一台 Sericite VM 有多便宜?
-
 Measures the four paths that matter for the "cheap, nestable isolation"
 claim, plus OS-level reference points for comparison:
 
@@ -15,7 +13,7 @@ claim, plus OS-level reference points for comparison:
   ref_proc_true    subprocess run of /bin/true
   ref_proc_python  subprocess run of `python -c pass`
 
-Usage 用法:
+Usage:
 
     uv sync
     uv run python benchmarks/vm_creation.py

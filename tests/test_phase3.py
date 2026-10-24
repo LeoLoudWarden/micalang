@@ -205,7 +205,7 @@ class NestedVMTests(unittest.TestCase):
         root_count = vm.snapshot()["instruction_count"]
         self.assertGreaterEqual(
             root_count, child.instruction_count,
-            "root 的指令计数应包含子 VM 的消耗",
+            "root instruction count should include the child's consumption",
         )
 
 

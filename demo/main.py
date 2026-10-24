@@ -1,18 +1,18 @@
-"""演示：基于 HTTP 能力授予 + 多层虚拟化的 LLM code exec。
+"""Demo: HTTP capability granting + multi-layer virtualized LLM code exec.
 
-结构：
-  宿主 Python ──(提示词1)── LLM 外层会话
-      │  tool_call: sericite_exec → 在新建的 sericite VM 中执行（授予 llm_chat / http_get）
+Structure:
+  host Python ──(prompt 1)── LLM outer session
+      │  tool_call: sericite_exec → runs in a freshly created sericite VM (granted llm_chat / http_get)
       ▼
-  VM 中的 sericite 代码（AI 生成）──(提示词2)── LLM 内层会话
-      │  tool_call: sericite_exec → 在下一层 VM 中执行（不授予 llm_chat，链条终止）
+  sericite code in the VM (AI-generated) ──(prompt 2)── LLM inner session
+      │  tool_call: sericite_exec → runs in the next-level VM (no llm_chat granted, chain terminates)
       ▼
-  内层 VM 中的 sericite 代码（AI 生成，做点简单的练习）
+  sericite code in the inner VM (AI-generated, doing a simple exercise)
 
-运行：先配置 .env（API_URL / API_KEY / API_MODEL），再
+Run: configure .env first (API_URL / API_KEY / API_MODEL), then
   uv run --extra demo demo/main.py
-没有真实 API 时可用本地桩服务器验证全链路：
-  uv run --extra demo demo/mock_server.py   # 另一个终端
+Without a real API, verify the whole chain against the local stub server:
+  uv run --extra demo demo/mock_server.py   # another terminal
   DEMO_ENV=demo/.env.mock uv run --extra demo demo/main.py
 """
 
@@ -133,7 +133,7 @@ PROMPT1 = """你是一个有代码执行能力的助手。
 
 
 def _normalize_api_url(url: str) -> str:
-    """允许 API_URL 填基础地址（如 http://host:8080/），自动补标准端点路径。"""
+    """Allow API_URL to be a base address (e.g. http://host:8080/); append the standard endpoint path automatically."""
     from urllib.parse import urlparse
 
     if urlparse(url).path in ("", "/"):
@@ -142,7 +142,7 @@ def _normalize_api_url(url: str) -> str:
 
 
 def make_llm_chat(api_url: str, api_key: str, model: str):
-    """构造授予给 VM 的 llm_chat：发请求 + 双向规整 tool_calls 形态。"""
+    """Build the llm_chat granted to the VM: send the request + normalize the tool_calls shape in both directions."""
 
     def llm_chat(payload):
         body = {"model": model}
@@ -184,7 +184,7 @@ def make_llm_chat(api_url: str, api_key: str, model: str):
         try:
             resp.raise_for_status()
         except requests.exceptions.HTTPError:
-            # 操作者侧诊断：脚本只能看到净化后的 ffi_error，细节打到 stderr
+            # Operator-side diagnostics: the script only sees the sanitized ffi_error; details go to stderr
             print(
                 f"[llm_chat 错误] {resp.status_code}: {resp.text[:500]}",
                 file=sys.stderr,
@@ -213,7 +213,7 @@ def make_llm_chat(api_url: str, api_key: str, model: str):
 
 
 def make_http_get():
-    """构造授予给 VM 的 http_get：抓取网址文本（用于查资料）。"""
+    """Build the http_get granted to the VM: fetch a URL's text content (for looking things up)."""
 
     def http_get(url):
         resp = requests.get(str(url), timeout=60)
@@ -231,7 +231,7 @@ def make_http_get():
 
 
 def harvest(vm, workspace: dict[str, str], prefix: str = "/") -> None:
-    """把 VM 文件系统里的文件收回到工作区。"""
+    """Collect the files from the VM's file system back into the workspace."""
     for name in vm.list_dir(prefix):
         path = prefix.rstrip("/") + "/" + name
         try:
@@ -267,7 +267,7 @@ def make_host_handler(llm_chat, http_get, seed_files: dict[str, str]):
                     vm.write_file(path, text)
                 output = vm.run()
             except SericiteError as exc:
-                # 编译/运行错误都作为工具结果喂回，让模型自己改代码重试
+                # Feed compile/run errors back as tool results so the model can fix the code and retry
                 return f"(sericite error: {exc})"
             harvest(vm, workspace)
             return output[:MAX_RESULT_CHARS] or "(no output)"

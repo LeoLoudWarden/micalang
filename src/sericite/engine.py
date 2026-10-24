@@ -71,7 +71,7 @@ class Frame:
     return_contract: object = None
     return_label: str | None = None
     display_name: str | None = None
-    # 代码的定义 VM；内建（IO/文件系统/配额等世界服务）解析回它。
+    # The VM that defined this code; builtins (IO/filesystem/quotas and other world services) resolve back to it.
     home: object = None
 
 
@@ -101,7 +101,7 @@ class SericiteFunction:
 
 
 class _TagContract:
-    """仅注解位的契约名单例：any / bool / list / dict。不可调用。"""
+    """Annotation-only contract-name singleton: any / bool / list / dict. Not callable."""
 
     __slots__ = ("tag",)
 
@@ -123,7 +123,7 @@ _TAG_TYPES = {"int": int, "float": float, "str": str, "bool": bool,
 
 
 class SericiteSchema:
-    """record 的结构契约：字段名 + 每字段契约。结构相等，无运行期名字。"""
+    """A record's structural contract: field names + per-field contracts. Structural equality, no runtime name."""
 
     __slots__ = ("fields", "field_map", "key")
 
@@ -143,7 +143,7 @@ class SericiteSchema:
 
 
 class SericiteRecord:
-    """带固定形状的对象：载荷 dict + schema 引用。字段不可增删，值受契约约束。"""
+    """A fixed-shape object: payload dict + schema reference. Fields cannot be added or removed; values are contract-checked."""
 
     __slots__ = ("schema", "fields")
 
@@ -203,7 +203,7 @@ def _contract_compatible(actual: object, expected: object) -> bool:
 def _schema_fit(
     actual: SericiteSchema, expected: SericiteSchema
 ) -> tuple[bool, list[str], list[str]]:
-    """actual 是否满足 expected：字段齐全且契约兼容。返回 (ok, 缺字段, 契约不符字段)。"""
+    """Whether actual satisfies expected: all fields present with compatible contracts. Returns (ok, missing fields, contract-mismatched fields)."""
     missing = [
         name for name, _ in expected.fields if name not in actual.field_map
     ]
@@ -279,8 +279,8 @@ def _make_iterator(value: object) -> _Iterator:
 class _NativeFunction:
     name: str
     callback: Callable[..., object]
-    # 内建所属的世界（定义 VM）；非 None 且不等于执行上下文时，
-    # 其计费会被镜像到执行上下文（因果计费）。
+    # The world builtins belong to (the defining VM); when not None and not the
+    # executing context, its charging is mirrored into the executing context (causal charging).
     home: object = None
 
     def __repr__(self) -> str:
@@ -289,7 +289,7 @@ class _NativeFunction:
 
 @dataclass(frozen=True)
 class _GrantedHostFunction:
-    """宿主注入的 Python 函数：跨边界双向深拷贝，异常净化为 ffi_error。"""
+    """A host-injected Python function: deep-copied both ways across the boundary, exceptions sanitized into ffi_error."""
 
     name: str
     callback: Callable[..., object]
@@ -300,7 +300,7 @@ class _GrantedHostFunction:
 
 @dataclass(frozen=True)
 class _GrantedSericiteFunction:
-    """父 VM 授予的函数：在调用方帧栈执行，保留完整定义方环境。"""
+    """A function granted by the parent VM: executes on the caller's frame stack, retaining its full definition-side environment."""
 
     name: str
     code: isa.CodeUnit
@@ -954,10 +954,11 @@ class SericiteEngine:
                     f"invalid arguments for {function.name}", kind="type_error"
                 ) from None
             if mirror:
-                # 世界服务归属 home，但资源成本因果地属于触发它的调用方：
-                # 把 home 账本的增量镜像到「调用方与 home 之间」的各层，
-                # 并扣除回调期间已沿调用方祖先链走过账的部分
-                # （如新建子 VM 的初始分配），避免重复计费。
+                # World services belong to home, but their resource cost causally
+                # belongs to the triggering caller: mirror home's ledger delta into
+                # the layers between the caller and home, minus what was already
+                # charged along the caller's ancestor chain during the callback
+                # (e.g. a new child VM's initial allocation), to avoid double charging.
                 work_done = home.instruction_count - before_home[0]
                 alloc_done = home.alloc_bytes - before_home[1]
                 work_done -= context.instruction_count - before_self[0]
@@ -1078,8 +1079,9 @@ class SericiteEngine:
         if not contracts:
             return
         code = function.code
-        # 标签与定义方函数名只在代码的定义 VM 内可见；
-        # 授予函数使用授予名（门上的名字），外来嵌套函数省略名字。
+        # Labels and definition-side function names are visible only inside the
+        # code's defining VM; granted functions use the granted name (the name on
+        # the door), foreign nested functions omit the name.
         visible = code.origin_vm == context.vm_id
         if isinstance(function, _GrantedSericiteFunction):
             func_name: str | None = function.name
@@ -1189,8 +1191,8 @@ class SericiteEngine:
         display_name: str | None = None,
         hide_params: bool = False,
     ) -> dict[str, object]:
-        # hide_params：代码不属于当前 VM 时，参数名是定义方的内部名字，
-        # 报错改用位置序号（不变量 16）。
+        # hide_params: when the code does not belong to the current VM, parameter
+        # names are definition-side internals — errors use positional indices instead (invariant 16).
         params = code.params
         fname = display_name or code.name
 
@@ -1267,7 +1269,7 @@ class SericiteEngine:
         )
         if name in granted:
             return granted[name]
-        # 内建解析回代码的定义 VM（home），而非当前执行的 VM
+        # Builtins resolve back to the code's defining VM (home), not the currently executing VM
         builtin = self._builtin(frame.home or context, name, caller=context)
         if builtin is not None:
             return builtin
@@ -1351,10 +1353,12 @@ class SericiteEngine:
         config: dict[str, object],
         cap: VMContext | None = None,
     ) -> VMHandle:
-        # 世界归属 parent（home：授予校验与配额上限的来源）；因果归属
-        # 调用方 cap：新 VM 是空世界，树位置只影响记账/深度/子计数，
-        # 挂到触发它的调用方下，消耗沿调用方祖先链上溯（不变量 14）。
-        # 配额取 parent 与调用方的逐项最小值。
+        # The world belongs to parent (home: source of grant validation and quota
+        # ceilings); the causal owner is the caller `cap`: the new VM is an empty
+        # world whose tree position only affects accounting/depth/child count —
+        # it hangs under the triggering caller, with consumption pushed up the
+        # caller's ancestor chain (invariant 14). Quotas are the elementwise
+        # minimum of parent's and the caller's.
         causal = cap if cap is not None else parent
         if not isinstance(source, str):
             raise SericiteError("VM source must be a string", kind="type_error")
@@ -1613,10 +1617,11 @@ class SericiteEngine:
     def _mirror_charge(
         self, context: VMContext, home: VMContext, work: int, alloc: int
     ) -> None:
-        """把 home 账本的增量镜像到调用方及其与 home 之间的中间层。
+        """Mirror home's ledger delta into the caller and the layers between it and home.
 
-        home 及其祖先已由原记账覆盖；若 home 不在调用方祖先链上
-        （上行/跨兄弟），则镜像到调用方的整条祖先链。
+        home and its ancestors are already covered by the original accounting;
+        if home is not on the caller's ancestor chain (upward/cross-sibling),
+        mirror into the caller's entire ancestor chain.
         """
         current = context
         while current is not home:
@@ -1637,10 +1642,11 @@ class SericiteEngine:
             current = self._contexts[current.parent_id]
 
     def _charge_alloc(self, context: VMContext, amount: int) -> None:
-        """为新创建的对象记账（近似字节数，只增不减），并计入祖先。
+        """Account a newly created object (approximate bytes, monotonically increasing), charging ancestors too.
 
-        记账沿祖先链累加，链上任意一环超出自己的配额即失败——
-        否则祖先的配额要等到它自己再次分配时才会被检查。
+        Accounting accumulates up the ancestor chain; any ring exceeding its own
+        quota fails — otherwise an ancestor's quota would only be checked when
+        it next allocates itself.
         """
         current = context
         while True:
@@ -1654,7 +1660,7 @@ class SericiteEngine:
             current = self._contexts[current.parent_id]
 
     def _charge_work(self, context: VMContext, amount: int) -> None:
-        """把大体量操作折算成指令数记账（防 O(n) 操作只计 1 条指令）。"""
+        """Charge bulk operations as instructions (so an O(n) operation never costs just 1 instruction)."""
         if amount <= 0:
             return
         current = context
@@ -1970,7 +1976,7 @@ def _min_limits(a: SericiteLimits, b: SericiteLimits) -> SericiteLimits:
 
 
 def _stamp_origin(code: isa.CodeUnit, vm_id: int) -> None:
-    """给一棵 CodeUnit 树打上编译它的 VM id：标签与定义方名字的可见性依据。"""
+    """Stamp a CodeUnit tree with the id of the VM that compiled it: the basis for label and definition-name visibility."""
     seen: set[int] = set()
     units = [code]
     while units:
@@ -1997,7 +2003,7 @@ def _check_grant_name(name: object) -> None:
 
 
 def _to_host(value: object, budget: list[int], depth: int = 0) -> object:
-    """把 sericite 值深拷贝为宿主侧纯数据结构；不允许句柄/函数越界。"""
+    """Deep-copy a sericite value into host-side pure data; handles/functions may not cross."""
     budget[0] -= 1
     if budget[0] < 0:
         raise SericiteError("FFI argument structure too large", kind="ffi_error")
@@ -2027,7 +2033,7 @@ def _to_host(value: object, budget: list[int], depth: int = 0) -> object:
 def _from_host(
     value: object, budget: list[int], max_string_bytes: int, depth: int = 0
 ) -> object:
-    """把宿主返回值校验并深拷贝为 sericite 值；异物与巨型结构拒绝。"""
+    """Validate and deep-copy a host return value into a sericite value; foreign objects and oversized structures are rejected."""
     budget[0] -= 1
     if budget[0] < 0:
         raise SericiteError("FFI result structure too large", kind="ffi_error")
@@ -2072,7 +2078,7 @@ def _const_bytes(code: isa.CodeUnit) -> int:
 
 
 def _estimate_size(value: object, budget: list[int]) -> int:
-    """估算一个纯数据结构的近似字节数，节点数封顶防失控。"""
+    """Estimate the approximate byte size of a pure-data structure; node count is capped against runaway input."""
     if budget[0] <= 0:
         return 0
     budget[0] -= 1
@@ -2109,11 +2115,12 @@ def _equals(
     _cache: dict | None = None,
     _counter: list | None = None,
 ) -> bool:
-    """结构相等。
+    """Structural equality.
 
-    _active 记录比较中的容器对（命中 = 环/共享子结构，余归纳返回 True）；
-    _cache 记录已完成的比较结果（命中返回真实结果，不重复展开 DAG）；
-    _counter 累计访问的节点数供配额计费。
+    _active tracks container pairs being compared (a hit means a cycle or shared
+    substructure, coinductively True); _cache records completed comparison
+    results (a hit returns the real result without re-expanding the DAG);
+    _counter accumulates visited nodes for quota charging.
     """
     if _counter is not None:
         _counter[0] += 1

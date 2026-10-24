@@ -1,10 +1,12 @@
-"""本地 OpenAI 兼容桩服务器：无真实 API 时端到端验证 demo 全链路。
+"""Local OpenAI-compatible stub server: verify the whole demo chain end-to-end without a real API.
 
-按固定脚本应答：外层会话（系统提示词不含"内部会话"）依次下达
-读文档 → 练习 → 执行中间层会话代码；内层会话执行一段练习代码后收尾。
-中间层会话循环的 sericite 代码由桩服务器"扮演 AI"给出，是正确可运行的。
+Replies follow a fixed script: the outer session (system prompt without "内部会话") issues
+read doc → practice → run the intermediate session's code in order; the inner session runs a
+practice snippet and wraps up.
+The sericite code for the intermediate session loop is supplied by the stub server "playing
+the AI" and is known to run correctly.
 
-运行：uv run --extra demo demo/mock_server.py（监听 127.0.0.1:8399）
+Run: uv run --extra demo demo/mock_server.py (listens on 127.0.0.1:8399)
 """
 
 from __future__ import annotations

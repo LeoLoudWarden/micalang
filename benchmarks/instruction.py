@@ -1,13 +1,11 @@
 """Benchmark: average cost of executing one Sericite instruction.
 
-基准：执行一条 Sericite 指令的平均成本。
-
 Measures a fixed counting loop and divides run() wall time by the actual
 instruction_count reported by the engine. VM creation and compilation happen
 before timing starts. This is a workload-weighted average across the opcodes
 used by the loop, not a claim that every opcode has the same cost.
 
-Usage 用法:
+Usage:
 
     uv sync
     uv run python benchmarks/instruction.py

@@ -1,37 +1,37 @@
-# record 与点号成员访问：schema 是运行期值，标签只在编译期。
+# Records and dot member access: schemas are runtime values; labels live only at compile time.
 
 class Point:
     x: int
     y: int
 
-# 构造：位置参数按声明顺序，也支持关键字
+# Construction: positional arguments follow declaration order; keywords work too
 p = Point(1, 2)
 q = Point(x=3, y=4)
 print(p.x, p.y)              # 1 2
 
-# 点号写成员，仍受契约约束（p.x = "s" 会报 contract_error）
+# Dot-assignment writes a member, still contract-checked (p.x = "s" raises contract_error)
 p.x = 10
 print(p)                     # record(x=10, y=2)
 
-# 注解是真实执行的运行期契约，宽度检查：多字段的 record 可以传入
+# Annotations are runtime contracts that actually execute, width-checked: a record with extra fields is accepted
 def dist_from_origin(pt: Point) -> int:
     return pt.x * pt.x + pt.y * pt.y
 
 print(dist_from_origin(q))   # 25
 
-# 扒皮与套皮：record <-> dict
+# Peel and wrap: record <-> dict
 d = unwrap(p)
 print(d)                     # {'x': 10, 'y': 2}
 r = wrap(Point, d)
-print(r == p)                # True（结构相等）
+print(r == p)                # True (structural equality)
 
-# dict 没有"检疫章"，形状对也进不了契约位
+# A dict carries no contract — even a matching shape cannot fill a contract position
 try:
     dist_from_origin({"x": 1, "y": 2})
 except contract_error as e:
     print("rejected:", e)
 
-# 缺字段的报错带编译期标签
+# The missing-field error carries the compile-time label
 try:
     print(p.z)
 except attribute_error as e:

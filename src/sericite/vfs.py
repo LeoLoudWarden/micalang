@@ -19,7 +19,7 @@ def normalize_path(path: object) -> str:
 
 
 class VirtualFileSystem:
-    """单个 VM 的私有文件空间：纯内存、纯文本，结构上无法触达宿主文件系统。"""
+    """A single VM's private file space: in-memory, text-only, structurally unable to reach the host filesystem."""
 
     def __init__(self, max_files: int = 1000, max_file_bytes: int = 1_048_576) -> None:
         self._files: dict[str, str] = {}

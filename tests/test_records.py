@@ -250,7 +250,7 @@ class AnnotationTests(unittest.TestCase):
         self.assertEqual(out, "5\n")
 
     def test_param_contract_rejects_dict(self):
-        # 检疫章规则：形状正确的 dict 也不能替代 record
+        # quarantine rule: a well-shaped dict still cannot stand in for a record
         exc = run_error(
             "class P:\n"
             "    x: int\n"
@@ -428,7 +428,7 @@ class ClosureAndVMTests(unittest.TestCase):
         self.assertEqual(exc.kind, "contract_error")
 
     def test_granted_function_labels_do_not_cross_vms(self):
-        # 门上的名字是 f；定义方名字 get_x 与类型标签 P 不出现在子层报错里
+        # the name at the door is f; the defining-side name get_x and the type tag P do not appear in the child-level error
         source = (
             "class P:\n"
             "    x: int\n"
@@ -655,7 +655,7 @@ class ClosureAndVMTests(unittest.TestCase):
         self.assertEqual(out, "True\n")
 
     def test_contains_no_false_positive_on_shared_substructure(self):
-        # 0.4.1 曾把"已比较为 False"的对误判为 True
+        # 0.4.1 once misjudged pairs already compared as False to be True
         out = run(
             "a = [1, 2]\n"
             "b = [a, a]\n"
@@ -684,7 +684,7 @@ class ClosureAndVMTests(unittest.TestCase):
             raise AssertionError("expected resource_exhausted")
 
     def test_schema_contract_check_is_charged(self):
-        # 每个字段契约是 500 字段的 schema，反复构造必须被计费
+        # each field contract is a schema of 500 fields; repeated construction must be charged
         fields = "\n".join(f"    f{i}" for i in range(500))
         limits = SericiteLimits(max_instructions=100000)
         source = (
@@ -750,7 +750,7 @@ class HomeVmTests(unittest.TestCase):
         self.assertEqual(run(source), "True False\n")
 
     def test_upcalled_function_reads_its_own_vfs(self):
-        # 子 VM 交上来的函数被父 VM 调用时，read_file 读的是子 VM 自己的文件系统
+        # when a function handed up by a child VM is called by the parent VM, read_file reads the child VM's own filesystem
         source = (
             "write_file('/secret.txt', 'PARENT SECRET')\n"
             "saved = [None]\n"
@@ -796,8 +796,8 @@ class HomeVmTests(unittest.TestCase):
         self.assertNotIn("_Granted", out)
 
     def test_spawned_vm_capped_by_caller_limits(self):
-        # 子 VM 借授予函数创建的孙 VM，配额同时受调用方收紧：
-        # 孙 VM 最多只能跑调用方预算内的指令（resource_exhausted 不可捕获，链式终止）
+        # a grandchild VM created via a granted function has its quota also capped by the caller:
+        # the grandchild can run at most within the caller's budget (resource_exhausted is uncatchable, terminating the chain)
         child_src = (
             '\nout = spawn("i = 0\\nwhile i < 100000:\\n    i = i + 1")\n'
         )
@@ -817,8 +817,8 @@ class HomeVmTests(unittest.TestCase):
             raise AssertionError("expected resource_exhausted")
 
     def test_builtin_work_mirrored_to_caller_quota(self):
-        # 授予函数的 read_file 作用于 home 的文件系统，
-        # 但资源消耗同时计入调用方账本：紧配额的子 VM 读大文件被拦下
+        # a granted function's read_file acts on the home filesystem,
+        # but resource consumption is also charged to the caller's ledger: a tight-quota child VM is blocked from reading a large file
         source = (
             'big = "x"\n'
             "i = 0\n"
@@ -842,7 +842,7 @@ class HomeVmTests(unittest.TestCase):
             self.assertEqual(exc.kind, "resource_exhausted")
         else:
             raise AssertionError("expected resource_exhausted")
-        # 宽配额下同一代码正常完成
+        # the same code completes normally with a generous quota
         self.assertEqual(
             run(source.replace("max_total_bytes=2000000",
                                "max_total_bytes=50000000")),
@@ -850,8 +850,8 @@ class HomeVmTests(unittest.TestCase):
         )
 
     def test_spawned_vms_bill_caller_cumulatively(self):
-        # 经授予函数反复创建孙 VM：孙 VM 的运行期消耗沿调用方祖先链记账，
-        # 紧配额的调用方在少量 spawn 后耗尽（而不是每个孙 VM 单独封顶）
+        # grandchild VMs repeatedly created via a granted function: the grandchild's runtime consumption is accounted
+        # along the caller's ancestor chain, so a tight-quota caller is exhausted after a few spawns (rather than each grandchild being capped individually)
         source = (
             "def spawn():\n"
             "    v = VM('i = 0\\nwhile i < 900:\\n    i = i + 1')\n"
@@ -869,7 +869,7 @@ class HomeVmTests(unittest.TestCase):
             raise AssertionError("expected resource_exhausted")
 
     def test_spawned_vm_attaches_to_caller_tree(self):
-        # 授予函数创建的孙 VM 挂在调用方树下（深度与父级按因果归属）
+        # a grandchild VM created via a granted function attaches under the caller's tree (depth and parent by causal attribution)
         engine = SericiteEngine()
         source = (
             "def spawn():\n"
@@ -883,7 +883,7 @@ class HomeVmTests(unittest.TestCase):
         self.assertEqual(grandchild.parent_id, 1)
 
     def test_spawn_alloc_not_double_counted(self):
-        # 孙 VM 的初始分配沿祖先链走账一次；镜像计费不重复计入调用方
+        # the grandchild VM's initial allocation is accounted once along the ancestor chain; mirrored charging does not double-count it against the caller
         import json
 
         grandchild_source = "x = " + json.dumps("y" * 50000)

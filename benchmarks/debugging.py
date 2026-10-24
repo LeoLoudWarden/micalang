@@ -1,14 +1,12 @@
 """Benchmark: cost of running versus single-stepping a Sericite VM.
 
-基准：连续运行与单步调试一台 Sericite VM 的成本。
-
 Runs the same fixed counting loop through run(), step_instruction(), and
 step(). VM creation and compilation happen before timing starts. Stepping
 measurements include both single-step control and the safe snapshot returned
 by every step call. The workload has one simple local variable; snapshots of
 large or deeply nested values cost more and are outside this benchmark.
 
-Usage 用法:
+Usage:
 
     uv sync
     uv run python benchmarks/debugging.py

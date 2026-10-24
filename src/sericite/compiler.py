@@ -27,7 +27,7 @@ RESERVED_NAMES = {
     "unwrap",
 }
 
-# 只能出现在注解位的契约名（不是函数，不可调用）。
+# Contract names that may only appear in annotation positions (not functions, not callable).
 _CONTRACT_ONLY_NAMES = {"any", "bool", "list", "dict"}
 
 _ALLOWED_NODES = {
@@ -181,8 +181,8 @@ class _ScopeCollector(ast.NodeVisitor):
             collector.visit(statement)
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
-        # 类名绑定到当前作用域；字段名不是作用域内的名字，
-        # 只有字段契约注解在定义处求值（可能引用外层名字）。
+        # The class name binds in the current scope; field names are not scope names —
+        # only field contract annotations are evaluated at definition (and may reference outer names).
         self.scope.bound[node.name] = None
         for statement in node.body:
             if isinstance(statement, ast.AnnAssign):
@@ -356,7 +356,7 @@ def _analyze_stack(code: isa.CodeUnit, filename: str) -> None:
 
 
 def _is_annotation_name(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> bool:
-    """该名字是否*就是*注解表达式本身。藏在意解子表达式里的保留名不放行。"""
+    """Whether the name *is* the annotation expression itself. Reserved names hidden inside sub-expressions are rejected."""
     parent = parents.get(node)
     if isinstance(parent, ast.arg) and parent.annotation is node:
         return True
@@ -385,7 +385,7 @@ def _validate(tree: ast.Module, filename: str) -> None:
             if node.id.startswith("__"):
                 _reject(node, filename, "dunder names are not available")
             parent = parents.get(node)
-            # class 体的裸字段声明是字段名，不是名字引用
+            # A bare field declaration in a class body is a field name, not a name reference
             is_bare_field = isinstance(parent, ast.Expr) and isinstance(
                 parents.get(parent), ast.ClassDef
             )
@@ -555,7 +555,7 @@ class _Compiler:
         self._finally_stack: list[list[ast.stmt]] = []
         self._function_depth = 0
         self._tmp_counter = 0
-        # 编译期标签表（仅诊断用）：名字 -> 标签文本，随函数作用域压栈/弹栈。
+        # Compile-time label table (diagnostics only): name -> label text, pushed/popped with the function scope.
         self._label_stack: list[dict[str, str]] = [{}]
 
     def _propagate_label(self, name: str, value: ast.AST) -> None:
